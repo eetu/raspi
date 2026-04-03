@@ -10,8 +10,13 @@ NETWORK = {
 
 WIREGUARD = {
     "subnet": "10.8.0.0/24",  # VPN subnet — change if it conflicts with your LAN
-    "ip": "10.8.0.1",  # Pi's VPN address
+    "ip": "10.8.0.1",  # Pi's VPN IPv4 address
+    "subnet6": "fd00::/64",  # VPN IPv6 ULA subnet
+    "ip6": "fd00::1",  # Pi's VPN IPv6 address
     "port": 51820,
+    # Optional: set if IPv4 WAN is reachable (not behind CGNAT).
+    # Enables A record + DDNS for wg endpoint. Omit if behind CGNAT.
+    # "public_ipv4": True,
 }
 
 PIHOLE = {
@@ -51,7 +56,8 @@ TRAEFIK = {
 }
 
 CIFS = {
-    "share": "//192.168.x.y/sharename",  # your NAS share
+    "share": "//nasname/sharename",  # NetBIOS hostname of your NAS
+    "host_ip": "192.168.x.y",  # current IP — update if it changes
     "mountpoint": "/mnt/audiobooks",
     "vers": "2.0",
     "sec": "ntlmsspi",

@@ -1,9 +1,11 @@
 """Audiobookshelf: Podman Quadlet container unit (arm64-safe)."""
 
+import hashlib
 import io
 
 from pyinfra.operations import files, server, systemd
 
+import vault as bw
 from group_data.all import AUDIOBOOKSHELF, CIFS
 
 quadlet = f"""\
@@ -14,11 +16,13 @@ Wants=network-online.target mnt-audiobooks.automount
 
 [Container]
 Image={AUDIOBOOKSHELF["image"]}
-PublishPort={AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}:80
+Network=host
 Volume={CIFS["mountpoint"]}/OpenAudible/books:/audiobooks:ro
 Volume=/var/lib/audiobookshelf/config:/config
 Volume=/var/lib/audiobookshelf/metadata:/metadata
 Environment=TZ=Europe/Helsinki
+Environment=PORT={AUDIOBOOKSHELF["port"]}
+Environment=HOST={AUDIOBOOKSHELF["host"]}
 AutoUpdate=registry
 Pull=newer
 
@@ -30,6 +34,9 @@ TimeoutStartSec=300
 [Install]
 WantedBy=multi-user.target
 """
+
+_quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
+_creds = bw.abs_creds()
 
 files.directory(
     name="Create audiobookshelf config dir",
@@ -70,4 +77,35 @@ systemd.service(
     service="audiobookshelf",
     running=True,
     daemon_reload=True,
+)
+
+server.shell(
+    name="Initialize Audiobookshelf root user",
+    commands=[
+        f"""
+        ABS_URL="http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
+        for i in $(seq 1 10); do
+          STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' "$ABS_URL/ping" 2>/dev/null || true)
+          if [ "$STATUS" = "200" ]; then break; fi
+          sleep 2
+        done
+        curl -sf -X POST "$ABS_URL/init" \
+          -H "Content-Type: application/json" \
+          -d '{{"newRoot":{{"username":"{_creds["username"]}","password":"{_creds["password"]}"}}}}'  \
+          2>/dev/null || true
+        """,
+    ],
+)
+
+server.shell(
+    name="Restart Audiobookshelf if quadlet changed",
+    commands=[
+        f"""
+        STAMP=/etc/containers/systemd/.audiobookshelf-quadlet-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
+          systemctl restart audiobookshelf
+          echo '{_quadlet_hash}' > "$STAMP"
+        fi
+        """,
+    ],
 )

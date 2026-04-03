@@ -1,6 +1,14 @@
 """
 Bitwarden CLI helpers. Requires BW_SESSION env var to be set:
     set -x BW_SESSION (bw unlock --raw)
+
+Item structure in the 'raspi' folder:
+  cloudflare        login  password=api_token  fields: zone_id
+  audiobookshelf    login  username/password   fields: cifs_username, cifs_password
+  wireguard-portal  login  username/password   fields: api_token
+  wireguard-server-key     (no login)          fields: private_key (hidden), public_key
+  hcc               secure note (notes = env file contents)
+  pihole            login  password=admin_password
 """
 
 import functools
@@ -39,9 +47,9 @@ def _get_item(name):
     return matches[0]
 
 
-def _parse_notes(item_name):
-    notes = _get_item(item_name)["notes"] or ""
-    return dict(line.split("=", 1) for line in notes.splitlines() if "=" in line)
+def _fields(item_name) -> dict:
+    item = _get_item(item_name)
+    return {f["name"]: f["value"] for f in (item.get("fields") or [])}
 
 
 def hcc_env() -> str:
@@ -53,27 +61,43 @@ def pihole_password() -> str:
 
 
 def cifs_creds() -> str:
-    login = _get_item("cifs-audiobooks")["login"]
-    return f"username={login['username']}\npassword={login['password']}\n"
+    f = _fields("audiobookshelf")
+    return f"username={f['cifs_username']}\npassword={f['cifs_password']}\n"
 
 
-def wg_portal_creds() -> dict:
-    login = _get_item("wireguard-portal")["login"]
+def abs_creds() -> dict:
+    login = _get_item("audiobookshelf")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 
+def wg_portal_creds() -> dict:
+    item = _get_item("wireguard-portal")
+    return {
+        "username": item["login"]["username"],
+        "password": item["login"]["password"],
+        "api_token": _fields("wireguard-portal").get("api_token", ""),
+    }
+
+
 def cloudflare() -> dict:
-    return _parse_notes("cloudflare")
+    item = _get_item("cloudflare")
+    return {
+        "token": item["login"]["password"],
+        "zone_id": _fields("cloudflare")["zone_id"],
+    }
 
 
 def wg_server_key() -> dict:
-    data = _parse_notes("wireguard-server-key")
-    return {k: v for k, v in data.items() if v}
+    f = _fields("wireguard-server-key")
+    return {k: v for k, v in f.items() if v}
 
 
 def save_wg_server_key(private_key: str, public_key: str) -> None:
     item = json.loads(json.dumps(_get_item("wireguard-server-key")))  # copy
-    item["notes"] = f"private_key={private_key}\npublic_key={public_key}"
+    item["fields"] = [
+        {"name": "private_key", "value": private_key, "type": 1},
+        {"name": "public_key", "value": public_key, "type": 0},
+    ]
     encoded = subprocess.run(
         ["bw", "encode"],
         input=json.dumps(item),
