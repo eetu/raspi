@@ -4,7 +4,7 @@ import io
 
 from pyinfra.operations import files
 
-import secrets as bw
+import vault as bw
 
 
 def _put_secret(name, content, dest, mode="600"):

@@ -18,11 +18,13 @@ DOMAIN = NETWORK["domain"]
 server.shell(
     name=f"Install Traefik {VERSION}",
     commands=[
-        "INSTALLED=$(/usr/local/bin/traefik version 2>/dev/null | awk '/Version:/ {print $2}' || true)",
-        f'if [ "$INSTALLED" != "{VERSION}" ]; then',
-        f'  curl -fsSL "{BINARY_URL}" | tar -xz -C /usr/local/bin traefik',
-        "  chmod +x /usr/local/bin/traefik",
-        "fi",
+        f"""
+        INSTALLED=$(/usr/local/bin/traefik version 2>/dev/null | awk '/Version:/ {{print $2}}' || true)
+        if [ "$INSTALLED" != "{VERSION}" ]; then
+          curl -fsSL "{BINARY_URL}" | tar -xz -C /usr/local/bin traefik
+          chmod +x /usr/local/bin/traefik
+        fi
+        """,
     ],
 )
 
@@ -109,6 +111,14 @@ http:
           - main: "{DOMAIN}"
             sans: ["*.{DOMAIN}"]
 
+    pihole-root:
+      rule: "Host(`pihole.{DOMAIN}`) && Path(`/`)"
+      service: pihole
+      entryPoints: [websecure]
+      middlewares: [pihole-redirect]
+      tls:
+        certResolver: cloudflare
+
     pihole:
       rule: "Host(`pihole.{DOMAIN}`)"
       service: pihole
@@ -129,6 +139,13 @@ http:
       entryPoints: [websecure]
       tls:
         certResolver: cloudflare
+
+  middlewares:
+    pihole-redirect:
+      redirectRegex:
+        regex: "^https://pihole\\.{DOMAIN}/$"
+        replacement: "https://pihole.{DOMAIN}/admin"
+        permanent: true
 
   services:
     hcc:

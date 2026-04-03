@@ -4,7 +4,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import secrets as bw
+import vault as bw
 from group_data.all import NETWORK, WGPORTAL, WIREGUARD
 
 VERSION = WGPORTAL["version"]
@@ -15,11 +15,13 @@ BINARY_URL = f"https://github.com/h44z/wg-portal/releases/download/{VERSION}/wg-
 server.shell(
     name=f"Install wg-portal {VERSION}",
     commands=[
-        f'INSTALLED=$(/usr/local/bin/wg-portal --version 2>/dev/null | grep -o "{VERSION}" || true)',
-        f'if [ "$INSTALLED" != "{VERSION}" ]; then',
-        f'  curl -fsSL "{BINARY_URL}" -o /usr/local/bin/wg-portal',
-        "  chmod +x /usr/local/bin/wg-portal",
-        "fi",
+        f"""
+        INSTALLED=$(/usr/local/bin/wg-portal --version 2>/dev/null | grep -o "{VERSION}" || true)
+        if [ "$INSTALLED" != "{VERSION}" ]; then
+          curl -fsSL "{BINARY_URL}" -o /usr/local/bin/wg-portal
+          chmod +x /usr/local/bin/wg-portal
+        fi
+        """,
     ],
 )
 

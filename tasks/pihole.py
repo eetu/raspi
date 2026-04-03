@@ -4,7 +4,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import secrets as bw
+import vault as bw
 from group_data.all import PIHOLE
 
 # --- setupVars for unattended installer ---
@@ -37,14 +37,17 @@ files.put(
     mode="644",
 )
 
-# --- Install ---
+# --- Install (skipped if already installed) ---
 
 server.shell(
     name="Install Pi-hole (unattended)",
     commands=[
-        "curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended",
+        """
+        if ! command -v pihole >/dev/null 2>&1; then
+          curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
+        fi
+        """,
     ],
-    timeout=300,
 )
 
 # --- Web port: bind to localhost:8080 ---
@@ -52,11 +55,16 @@ server.shell(
 server.shell(
     name="Set Pi-hole web port to 127.0.0.1:8080",
     commands=[
-        f"pihole-FTL --config webserver.port '127.0.0.1:{PIHOLE['web_port']}o'",
+        f"""
+        CURRENT=$(pihole-FTL --config webserver.port 2>/dev/null || true)
+        if [ "$CURRENT" != "127.0.0.1:{PIHOLE["web_port"]}o" ]; then
+          pihole-FTL --config webserver.port '127.0.0.1:{PIHOLE["web_port"]}o'
+        fi
+        """,
     ],
 )
 
-# --- Admin password ---
+# --- Admin password (always set — cheap, idempotent) ---
 
 server.shell(
     name="Set Pi-hole admin password",
@@ -65,7 +73,7 @@ server.shell(
     ],
 )
 
-# --- Blocklists ---
+# --- Blocklists (INSERT OR IGNORE is already idempotent) ---
 
 for url in PIHOLE["blocklists"]:
     server.shell(
@@ -80,7 +88,6 @@ VALUES ('{url}', 1, 'hagezi')" """,
 server.shell(
     name="Update Pi-hole gravity",
     commands=["pihole -g"],
-    timeout=300,
 )
 
 # --- Upstream DNS (Quad9 unfiltered, no DNSSEC) ---
@@ -93,8 +100,8 @@ server.shell(
 )
 
 systemd.service(
-    name="Restart pihole-FTL",
+    name="Enable pihole-FTL",
     service="pihole-FTL",
     enabled=True,
-    restarted=True,
+    running=True,
 )

@@ -42,47 +42,24 @@ files.put(
 # --- ufw ---
 
 server.shell(
-    name="UFW: reset and set defaults",
+    name="UFW: configure rules",
     commands=[
-        "ufw --force reset",
-        "ufw default deny incoming",
-        "ufw default allow outgoing",
-        "ufw default deny routed",
+        f"""
+        ufw --force reset
+        ufw default deny incoming
+        ufw default allow outgoing
+        ufw default deny routed
+        ufw allow from {NETWORK["lan_cidr"]} to any port 22 proto tcp comment 'SSH LAN'
+        ufw allow from {WIREGUARD["subnet"]} to any port 22 proto tcp comment 'SSH WG'
+        ufw allow from {NETWORK["lan_cidr"]} to any port 53 comment 'DNS LAN'
+        ufw allow from {WIREGUARD["subnet"]} to any port 53 comment 'DNS WG'
+        ufw allow from {NETWORK["lan_cidr"]} to any port 80 proto tcp comment 'HTTP LAN'
+        ufw allow from {NETWORK["lan_cidr"]} to any port 443 proto tcp comment 'HTTPS LAN'
+        ufw allow from {WIREGUARD["subnet"]} to any port 443 proto tcp comment 'HTTPS WG'
+        ufw allow {WIREGUARD["port"]}/udp comment 'WireGuard'
+        ufw --force enable
+        """,
     ],
 )
-
-server.shell(
-    name="UFW: SSH from LAN and WireGuard",
-    commands=[
-        f"ufw allow from {NETWORK['lan_cidr']} to any port 22 proto tcp comment 'SSH LAN'",
-        f"ufw allow from {WIREGUARD['subnet']} to any port 22 proto tcp comment 'SSH WG'",
-    ],
-)
-
-server.shell(
-    name="UFW: Pi-hole DNS",
-    commands=[
-        f"ufw allow from {NETWORK['lan_cidr']} to any port 53 comment 'DNS LAN'",
-        f"ufw allow from {WIREGUARD['subnet']} to any port 53 comment 'DNS WG'",
-    ],
-)
-
-server.shell(
-    name="UFW: Traefik HTTP/HTTPS",
-    commands=[
-        f"ufw allow from {NETWORK['lan_cidr']} to any port 80 proto tcp comment 'HTTP LAN'",
-        f"ufw allow from {NETWORK['lan_cidr']} to any port 443 proto tcp comment 'HTTPS LAN'",
-        f"ufw allow from {WIREGUARD['subnet']} to any port 443 proto tcp comment 'HTTPS WG'",
-    ],
-)
-
-server.shell(
-    name="UFW: WireGuard",
-    commands=[
-        f"ufw allow {WIREGUARD['port']}/udp comment 'WireGuard'",
-    ],
-)
-
-server.shell(name="UFW: enable", commands=["ufw --force enable"])
 
 systemd.service(name="Enable ufw", service="ufw", enabled=True, running=True)

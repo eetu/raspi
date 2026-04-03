@@ -31,4 +31,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["secrets", "group_data"]
+known-first-party = ["vault", "group_data"]

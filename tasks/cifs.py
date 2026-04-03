@@ -1,5 +1,7 @@
 """CIFS automount: systemd .mount + .automount units for NAS audiobooks share."""
 
+import io
+
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import CIFS
@@ -14,7 +16,7 @@ Wants=network-online.target
 What={CIFS["share"]}
 Where={CIFS["mountpoint"]}
 Type=cifs
-Options=credentials=/etc/secrets/cifs-audiobooks,vers={CIFS["vers"]},sec={CIFS["sec"]},_netdev,uid=audiobookshelf,gid=audiobookshelf,iocharset=utf8
+Options=credentials=/etc/secrets/cifs-audiobooks,vers={CIFS["vers"]},sec={CIFS["sec"]},_netdev,uid=1000,gid=1000,file_mode=0755,dir_mode=0755
 
 [Install]
 WantedBy=multi-user.target
@@ -41,7 +43,7 @@ server.shell(
 
 files.put(
     name="Write mnt-audiobooks.mount",
-    src=mount_unit,
+    src=io.BytesIO(mount_unit.encode()),
     dest="/etc/systemd/system/mnt-audiobooks.mount",
     user="root",
     group="root",
@@ -50,7 +52,7 @@ files.put(
 
 files.put(
     name="Write mnt-audiobooks.automount",
-    src=automount_unit,
+    src=io.BytesIO(automount_unit.encode()),
     dest="/etc/systemd/system/mnt-audiobooks.automount",
     user="root",
     group="root",
