@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault as bw
-from group_data.all import NETWORK
+from group_data.all import NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
@@ -34,7 +34,11 @@ def _cf(method, path, data=None):
 
 
 def _public_ip():
-    for url in ("https://api4.ipify.org", "https://ipv4.icanhazip.com", "https://ipv4.wtfismyip.com/text"):
+    for url in (
+        "https://api4.ipify.org",
+        "https://ipv4.icanhazip.com",
+        "https://ipv4.wtfismyip.com/text",
+    ):
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
                 return resp.read().decode().strip()
@@ -60,17 +64,16 @@ def _ensure_record(subdomain, ip, rtype):
         logger.info(f"DNS created {fqdn} {rtype} → {ip}")
 
 
-
 def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
-    public_ip = _public_ip()
-    logger.info(f"Public IP: {public_ip}")
 
     for subdomain in ("hcc", "pihole", "abs", "vpn"):
         _ensure_record(subdomain, lan_ip, "A")
 
-    _ensure_record("wg", public_ip, "A")
-    # AAAA record for wg is managed by cloudflare-ddns.sh on the Pi (IPv6 via Elisa 5G passthrough)
+    # wg AAAA record is managed by cloudflare-ddns.sh on the Pi (IPv6 via passthrough)
+    if WIREGUARD.get("public_ipv4"):
+        public_ip = _public_ip()
+        _ensure_record("wg", public_ip, "A")
 
 
 python.call(name="Configure Cloudflare DNS records", function=configure_dns)

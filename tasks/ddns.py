@@ -4,9 +4,18 @@ import io
 
 from pyinfra.operations import files, systemd
 
-from group_data.all import NETWORK
+from group_data.all import NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
+
+_ipv4_block = (
+    (
+        "CURRENT_IP=$(curl -sf https://api4.ipify.org || curl -sf https://ipv4.icanhazip.com || true)\n"
+        '_update_record A "$CURRENT_IP"'
+    )
+    if WIREGUARD.get("public_ipv4")
+    else ""
+)
 
 script = f"""\
 #!/bin/bash
@@ -41,10 +50,8 @@ _update_record() {{
     logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{TYPE}} ${{DNS_IP}} -> ${{CURRENT}}"
 }}
 
-CURRENT_IP=$(curl -sf https://api4.ipify.org || curl -sf https://ipv4.icanhazip.com || curl -sf https://ipv4.wtfismyip.com/text || true)
 CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ {{print $2}}' | cut -d/ -f1 | head -1)
-
-_update_record A "$CURRENT_IP"
+{_ipv4_block}
 _update_record AAAA "$CURRENT_IP6"
 """
 

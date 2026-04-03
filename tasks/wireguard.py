@@ -36,12 +36,12 @@ else:
 # --- wg0.conf ---
 
 wg0_conf = f"""[Interface]
-Address    = {WIREGUARD["ip"]}/24
+Address    = {WIREGUARD["ip"]}/24, {WIREGUARD["ip6"]}/64
 ListenPort = {WIREGUARD["port"]}
 PrivateKey = {private_key}
 # NAT: masquerade VPN traffic through the default outbound interface
-PostUp   = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $(ip route show default | awk '{{print $5; exit}}') -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $(ip route show default | awk '{{print $5; exit}}') -j MASQUERADE
+PostUp   = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $(ip route show default | awk '{{print $5; exit}}') -j MASQUERADE; ip6tables -A FORWARD -i %i -j ACCEPT; ip6tables -A FORWARD -o %i -j ACCEPT; ip6tables -t nat -A POSTROUTING -o $(ip -6 route show default | awk '{{print $5; exit}}') -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $(ip route show default | awk '{{print $5; exit}}') -j MASQUERADE; ip6tables -D FORWARD -i %i -j ACCEPT; ip6tables -D FORWARD -o %i -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $(ip -6 route show default | awk '{{print $5; exit}}') -j MASQUERADE
 # Peers are managed by wg-portal — do not edit below this line
 """
 

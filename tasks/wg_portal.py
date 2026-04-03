@@ -153,13 +153,18 @@ server.shell(
         if [ -z "$IFACE" ]; then echo "wg-portal: failed to get interface" >&2; exit 1; fi
 
         CURRENT_EP=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefEndpoint',''))")
-        if [ "$CURRENT_EP" = "$ENDPOINT" ]; then exit 0; fi
+        CURRENT_ADDRS=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Addresses',''))")
+        if [ "$CURRENT_EP" = "$ENDPOINT" ] && echo "$CURRENT_ADDRS" | grep -q "{WIREGUARD["ip6"]}"; then exit 0; fi
 
         IFACE=$(echo "$IFACE" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 d['PeerDefEndpoint'] = '$ENDPOINT'
 d['PeerDefDns'] = ['$DNS']
+addrs = d.get('Addresses', [])
+if '{WIREGUARD["ip6"]}/64' not in addrs:
+    addrs.append('{WIREGUARD["ip6"]}/64')
+d['Addresses'] = addrs
 print(json.dumps(d))
 ")
 
@@ -197,6 +202,12 @@ d = json.load(sys.stdin)
 d['DisplayName'] = 'Default'
 d['Mode'] = 'client'
 d['AllowedIPs'] = {{'Value': ['0.0.0.0/0', '::/0'], 'Overridable': True}}
+# Derive IPv6 peer address from IPv4 last octet (e.g. 10.8.0.3 -> fd00::3/128)
+ipv4 = next((a for a in d.get('Addresses', []) if ':' not in a), None)
+if ipv4:
+    last = ipv4.split('.')[3].split('/')[0]
+    ip6_prefix = '{WIREGUARD["ip6"]}'.rsplit('::', 1)[0] + '::'
+    d['Addresses'] = [ipv4, f'{{ip6_prefix}}{{last}}/128']
 print(json.dumps(d))
 ")
 
