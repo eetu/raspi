@@ -1,0 +1,16 @@
+# Installation-specific — copy the .example.py counterpart and fill in values
+group_data/all.py
+inventory.py
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+PLAN.md

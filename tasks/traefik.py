@@ -1,0 +1,201 @@
+"""Traefik: download binary, static + dynamic config, systemd service."""
+
+import io
+
+from pyinfra.operations import files, server, systemd
+
+from group_data.all import AUDIOBOOKSHELF, HCC, NETWORK, PIHOLE, TRAEFIK, WGPORTAL
+
+VERSION = TRAEFIK["version"]
+BINARY_URL = (
+    f"https://github.com/traefik/traefik/releases/download/{VERSION}/"
+    f"traefik_{VERSION}_linux_arm64.tar.gz"
+)
+DOMAIN = NETWORK["domain"]
+
+# --- Binary ---
+
+server.shell(
+    name=f"Install Traefik {VERSION}",
+    commands=[
+        "INSTALLED=$(/usr/local/bin/traefik version 2>/dev/null | awk '/Version:/ {print $2}' || true)",
+        f'if [ "$INSTALLED" != "{VERSION}" ]; then',
+        f'  curl -fsSL "{BINARY_URL}" | tar -xz -C /usr/local/bin traefik',
+        "  chmod +x /usr/local/bin/traefik",
+        "fi",
+    ],
+)
+
+# --- Directories ---
+
+for path in ("/etc/traefik", "/etc/traefik/dynamic"):
+    files.directory(
+        name=f"Create {path}",
+        path=path,
+        user="root",
+        group="root",
+        mode="750",
+        present=True,
+    )
+
+# acme.json must be 600 or Traefik refuses to start
+server.shell(
+    name="Create acme.json",
+    commands=[
+        "touch /etc/traefik/acme.json",
+        "chmod 600 /etc/traefik/acme.json",
+    ],
+)
+
+# --- Static config ---
+
+static_yaml = f"""\
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  cloudflare:
+    acme:
+      email: "admin@{DOMAIN}"
+      storage: /etc/traefik/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+log:
+  level: INFO
+
+api:
+  dashboard: false
+"""
+
+files.put(
+    name="Write Traefik static config",
+    src=io.BytesIO(static_yaml.encode()),
+    dest="/etc/traefik/static.yaml",
+    user="root",
+    group="root",
+    mode="644",
+)
+
+# --- Dynamic config ---
+
+dynamic_yaml = f"""\
+http:
+  routers:
+    hcc:
+      rule: "Host(`hcc.{DOMAIN}`)"
+      service: hcc
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "{DOMAIN}"
+            sans: ["*.{DOMAIN}"]
+
+    pihole:
+      rule: "Host(`pihole.{DOMAIN}`)"
+      service: pihole
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
+    abs:
+      rule: "Host(`abs.{DOMAIN}`)"
+      service: abs
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
+    vpn:
+      rule: "Host(`vpn.{DOMAIN}`)"
+      service: vpn
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
+  services:
+    hcc:
+      loadBalancer:
+        servers:
+          - url: "http://{HCC["host"]}:{HCC["port"]}"
+
+    pihole:
+      loadBalancer:
+        servers:
+          - url: "http://{PIHOLE["host"]}:{PIHOLE["web_port"]}"
+
+    abs:
+      loadBalancer:
+        servers:
+          - url: "http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
+
+    vpn:
+      loadBalancer:
+        servers:
+          - url: "http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
+"""
+
+files.put(
+    name="Write Traefik dynamic config",
+    src=io.BytesIO(dynamic_yaml.encode()),
+    dest="/etc/traefik/dynamic/services.yaml",
+    user="root",
+    group="root",
+    mode="644",
+)
+
+# --- systemd service ---
+
+service_unit = """\
+[Unit]
+Description=Traefik reverse proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/etc/secrets/cloudflare.env
+ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/static.yaml
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+files.put(
+    name="Write traefik systemd unit",
+    src=io.BytesIO(service_unit.encode()),
+    dest="/etc/systemd/system/traefik.service",
+    user="root",
+    group="root",
+    mode="644",
+)
+
+systemd.service(
+    name="Enable Traefik",
+    service="traefik",
+    enabled=True,
+    running=True,
+    daemon_reload=True,
+)

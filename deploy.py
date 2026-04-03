@@ -1,0 +1,15 @@
+from pyinfra import local
+
+local.include("tasks/bootstrap.py")
+local.include("tasks/hardening.py")
+local.include("tasks/secrets_files.py")
+local.include("tasks/cloudflare_dns.py")
+local.include("tasks/pihole.py")
+local.include("tasks/wireguard.py")
+local.include("tasks/wg_portal.py")
+local.include("tasks/traefik.py")
+local.include("tasks/cifs.py")
+local.include("tasks/audiobookshelf.py")
+local.include("tasks/podman.py")
+local.include("tasks/hcc.py")
+local.include("tasks/ddns.py")
