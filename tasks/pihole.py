@@ -151,9 +151,9 @@ systemd.service(
 # --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---
 
 _subdomains = ["hcc", "pihole", "abs", "vpn"]
-_local_dns = "\n".join(
-    f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in _subdomains
-) + "\n"
+_local_dns = (
+    "\n".join(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in _subdomains) + "\n"
+)
 
 files.put(
     name="Write Pi-hole local DNS records",

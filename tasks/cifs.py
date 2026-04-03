@@ -12,7 +12,7 @@ server.shell(
     name=f"Set /etc/hosts entry for {_nas_hostname}",
     commands=[
         f"""
-        ENTRY="{CIFS['host_ip']} {_nas_hostname}"
+        ENTRY="{CIFS["host_ip"]} {_nas_hostname}"
         if grep -q "\\b{_nas_hostname}\\b" /etc/hosts; then
           sed -i "s/.*\\b{_nas_hostname}\\b.*/$ENTRY/" /etc/hosts
         else
