@@ -36,7 +36,7 @@ AUDIOBOOKSHELF = {
     "host": "127.0.0.1",
     "port": 13378,
     "books_path": "/mnt/audiobooks/OpenAudible/books",
-    "version": "v2.33.1",
+    "image": "ghcr.io/advplyr/audiobookshelf:2.33.1",
 }
 
 WGPORTAL = {

@@ -1,5 +1,7 @@
 """HCC: Podman Quadlet container unit."""
 
+import io
+
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import HCC
@@ -37,7 +39,7 @@ files.directory(
 
 files.put(
     name="Write hcc.container quadlet",
-    src=quadlet,
+    src=io.BytesIO(quadlet.encode()),
     dest="/etc/containers/systemd/hcc.container",
     user="root",
     group="root",
@@ -52,9 +54,8 @@ server.shell(
 )
 
 systemd.service(
-    name="Enable HCC",
+    name="Start HCC",
     service="hcc",
-    enabled=True,
     running=True,
     daemon_reload=True,
 )

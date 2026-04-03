@@ -1,55 +1,73 @@
-"""Audiobookshelf: install via official PPA, configure port."""
+"""Audiobookshelf: Podman Quadlet container unit (arm64-safe)."""
 
-from pyinfra.operations import apt, files, server, systemd
+import io
 
-from group_data.all import AUDIOBOOKSHELF
+from pyinfra.operations import files, server, systemd
 
-# --- PPA ---
+from group_data.all import AUDIOBOOKSHELF, CIFS
 
-server.shell(
-    name="Add Audiobookshelf GPG key",
-    commands=[
-        "wget -qO- https://advplyr.github.io/audiobookshelf-ppa/KEY.gpg "
-        "| gpg --dearmor "
-        "| tee /etc/apt/trusted.gpg.d/audiobookshelf.gpg > /dev/null",
-    ],
+quadlet = f"""\
+[Unit]
+Description=Audiobookshelf
+After=network-online.target mnt-audiobooks.automount
+Wants=network-online.target mnt-audiobooks.automount
+
+[Container]
+Image={AUDIOBOOKSHELF["image"]}
+PublishPort={AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}:80
+Volume={CIFS["mountpoint"]}/OpenAudible/books:/audiobooks:ro
+Volume=/var/lib/audiobookshelf/config:/config
+Volume=/var/lib/audiobookshelf/metadata:/metadata
+Environment=TZ=Europe/Helsinki
+AutoUpdate=registry
+Pull=newer
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+files.directory(
+    name="Create audiobookshelf config dir",
+    path="/var/lib/audiobookshelf/config",
+    user="root",
+    group="root",
+    mode="755",
+    present=True,
+)
+
+files.directory(
+    name="Create audiobookshelf metadata dir",
+    path="/var/lib/audiobookshelf/metadata",
+    user="root",
+    group="root",
+    mode="755",
+    present=True,
 )
 
 files.put(
-    name="Add Audiobookshelf apt source",
-    src="files/audiobookshelf.list",
-    dest="/etc/apt/sources.list.d/audiobookshelf.list",
+    name="Write audiobookshelf.container quadlet",
+    src=io.BytesIO(quadlet.encode()),
+    dest="/etc/containers/systemd/audiobookshelf.container",
     user="root",
     group="root",
     mode="644",
 )
 
-apt.update(name="Update apt cache after adding audiobookshelf PPA")
-
-apt.packages(
-    name="Install Audiobookshelf",
-    packages=["audiobookshelf"],
-    update=False,
-)
-
-# --- Default env: bind to localhost, set port ---
-
 server.shell(
-    name="Configure Audiobookshelf port and host",
+    name="Reload quadlet units",
     commands=[
-        "grep -q '^PORT=' /etc/default/audiobookshelf "
-        f"  && sed -i 's/^PORT=.*/PORT={AUDIOBOOKSHELF['port']}/' /etc/default/audiobookshelf "
-        f"  || echo 'PORT={AUDIOBOOKSHELF['port']}' >> /etc/default/audiobookshelf",
-        "grep -q '^HOST=' /etc/default/audiobookshelf "
-        f"  && sed -i 's/^HOST=.*/HOST={AUDIOBOOKSHELF['host']}/' /etc/default/audiobookshelf "
-        f"  || echo 'HOST={AUDIOBOOKSHELF['host']}' >> /etc/default/audiobookshelf",
+        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
     ],
 )
 
 systemd.service(
-    name="Enable Audiobookshelf",
+    name="Start Audiobookshelf",
     service="audiobookshelf",
-    enabled=True,
     running=True,
     daemon_reload=True,
 )

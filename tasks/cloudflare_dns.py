@@ -9,8 +9,10 @@ import urllib.request
 from pyinfra import logger
 from pyinfra.operations import python
 
-import secrets as bw
-from group_data.all import DOMAIN, NETWORK
+import vault as bw
+from group_data.all import NETWORK
+
+DOMAIN = NETWORK["domain"]
 
 
 def _cf(method, path, data=None):

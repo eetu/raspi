@@ -6,7 +6,7 @@ import io
 from pyinfra import logger
 from pyinfra.operations import files, server, systemd
 
-import secrets as bw
+import vault as bw
 from group_data.all import WIREGUARD
 
 
