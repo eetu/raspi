@@ -1,5 +1,6 @@
 """Traefik: download binary, static + dynamic config, systemd service."""
 
+import hashlib
 import io
 
 from pyinfra.operations import files, server, systemd
@@ -40,12 +41,16 @@ for path in ("/etc/traefik", "/etc/traefik/dynamic"):
         present=True,
     )
 
-# acme.json must be 600 or Traefik refuses to start
+# acme.json must exist with mode 600 or Traefik refuses to start
 server.shell(
     name="Create acme.json",
     commands=[
-        "touch /etc/traefik/acme.json",
-        "chmod 600 /etc/traefik/acme.json",
+        """
+        if [ ! -f /etc/traefik/acme.json ]; then
+          touch /etc/traefik/acme.json
+          chmod 600 /etc/traefik/acme.json
+        fi
+        """,
     ],
 )
 
@@ -143,8 +148,8 @@ http:
   middlewares:
     pihole-redirect:
       redirectRegex:
-        regex: "^https://pihole\\.{DOMAIN}/$"
-        replacement: "https://pihole.{DOMAIN}/admin"
+        regex: '^https://pihole\\.{DOMAIN}/$'
+        replacement: 'https://pihole.{DOMAIN}/admin'
         permanent: true
 
   services:
@@ -209,10 +214,25 @@ files.put(
     mode="644",
 )
 
+_static_hash = hashlib.sha256((static_yaml + service_unit).encode()).hexdigest()
+
 systemd.service(
     name="Enable Traefik",
     service="traefik",
     enabled=True,
     running=True,
     daemon_reload=True,
+)
+
+server.shell(
+    name="Restart Traefik if config changed",
+    commands=[
+        f"""
+        STAMP=/etc/traefik/.pyinfra-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_static_hash}" ]; then
+          systemctl restart traefik
+          echo '{_static_hash}' > "$STAMP"
+        fi
+        """,
+    ],
 )

@@ -1,11 +1,12 @@
 """Pi-hole v6: unattended install, web port, blocklists, password."""
 
+import hashlib
 import io
 
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import PIHOLE
+from group_data.all import NETWORK, PIHOLE
 
 # --- setupVars for unattended installer ---
 
@@ -56,24 +57,35 @@ server.shell(
     name="Set Pi-hole web port to 127.0.0.1:8080",
     commands=[
         f"""
+        WANT="127.0.0.1:{PIHOLE["web_port"]}o"
         CURRENT=$(pihole-FTL --config webserver.port 2>/dev/null || true)
-        if [ "$CURRENT" != "127.0.0.1:{PIHOLE["web_port"]}o" ]; then
-          pihole-FTL --config webserver.port '127.0.0.1:{PIHOLE["web_port"]}o'
+        if [ "$CURRENT" != "$WANT" ]; then
+          pihole-FTL --config webserver.port "$WANT"
         fi
         """,
     ],
 )
 
-# --- Admin password (always set — cheap, idempotent) ---
+# --- Admin password ---
+
+_pw_hash = hashlib.sha256(bw.pihole_password().encode()).hexdigest()
 
 server.shell(
     name="Set Pi-hole admin password",
     commands=[
-        f"pihole setpassword '{bw.pihole_password()}'",
+        f"""
+        STAMP=/etc/pihole/.pw-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_pw_hash}" ]; then
+          pihole setpassword '{bw.pihole_password()}'
+          echo '{_pw_hash}' > "$STAMP"
+        fi
+        """,
     ],
 )
 
-# --- Blocklists (INSERT OR IGNORE is already idempotent) ---
+# --- Blocklists + gravity (INSERT OR IGNORE is idempotent; gravity guarded by stamp) ---
+
+_blocklist_hash = hashlib.sha256("".join(PIHOLE["blocklists"]).encode()).hexdigest()
 
 for url in PIHOLE["blocklists"]:
     server.shell(
@@ -87,7 +99,31 @@ VALUES ('{url}', 1, 'hagezi')" """,
 
 server.shell(
     name="Update Pi-hole gravity",
-    commands=["pihole -g"],
+    commands=[
+        f"""
+        STAMP=/etc/pihole/.gravity-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_blocklist_hash}" ]; then
+          pihole -g
+          echo '{_blocklist_hash}' > "$STAMP"
+        fi
+        """,
+    ],
+)
+
+# --- Listen on all interfaces (needed for WireGuard DNS) ---
+
+server.shell(
+    name="Set Pi-hole to listen on all interfaces",
+    commands=[
+        """
+        WANT="local"
+        CURRENT=$(pihole-FTL --config dns.listeningMode 2>/dev/null || true)
+        if [ "$CURRENT" != "$WANT" ]; then
+          pihole-FTL --config dns.listeningMode "$WANT"
+          systemctl restart pihole-FTL
+        fi
+        """,
+    ],
 )
 
 # --- Upstream DNS (Quad9 unfiltered, no DNSSEC) ---
@@ -95,7 +131,13 @@ server.shell(
 server.shell(
     name="Set upstream DNS servers",
     commands=[
-        'pihole-FTL --config dns.upstreams \'["9.9.9.10", "149.112.112.10"]\'',
+        f"""
+        WANT='["{PIHOLE["dns1"]}", "{PIHOLE["dns2"]}"]'
+        CURRENT=$(pihole-FTL --config dns.upstreams 2>/dev/null || true)
+        if [ "$CURRENT" != "$WANT" ]; then
+          pihole-FTL --config dns.upstreams "$WANT"
+        fi
+        """,
     ],
 )
 
@@ -104,4 +146,20 @@ systemd.service(
     service="pihole-FTL",
     enabled=True,
     running=True,
+)
+
+# --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---
+
+_subdomains = ["hcc", "pihole", "abs", "vpn"]
+_local_dns = "\n".join(
+    f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in _subdomains
+) + "\n"
+
+files.put(
+    name="Write Pi-hole local DNS records",
+    src=io.BytesIO(_local_dns.encode()),
+    dest="/etc/pihole/custom.list",
+    user="root",
+    group="root",
+    mode="644",
 )

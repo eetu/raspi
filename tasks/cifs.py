@@ -6,6 +6,22 @@ from pyinfra.operations import files, server, systemd
 
 from group_data.all import CIFS
 
+_nas_hostname = CIFS["share"].split("/")[2]  # extracts "zenwifi" from "//zenwifi/audiobooks"
+
+server.shell(
+    name=f"Set /etc/hosts entry for {_nas_hostname}",
+    commands=[
+        f"""
+        ENTRY="{CIFS['host_ip']} {_nas_hostname}"
+        if grep -q "\\b{_nas_hostname}\\b" /etc/hosts; then
+          sed -i "s/.*\\b{_nas_hostname}\\b.*/$ENTRY/" /etc/hosts
+        else
+          echo "$ENTRY" >> /etc/hosts
+        fi
+        """,
+    ],
+)
+
 mount_unit = f"""\
 [Unit]
 Description=Audiobooks NAS share
@@ -36,9 +52,10 @@ TimeoutIdleSec=0
 WantedBy=multi-user.target
 """
 
-server.shell(
+files.directory(
     name=f"Create mountpoint {CIFS['mountpoint']}",
-    commands=[f"mkdir -p {CIFS['mountpoint']}"],
+    path=CIFS["mountpoint"],
+    present=True,
 )
 
 files.put(

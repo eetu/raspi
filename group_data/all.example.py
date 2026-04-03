@@ -51,7 +51,8 @@ TRAEFIK = {
 }
 
 CIFS = {
-    "share": "//192.168.x.y/sharename",  # your NAS share
+    "share": "//nasname/sharename",  # NetBIOS hostname of your NAS
+    "host_ip": "192.168.x.y",        # current IP — update if it changes
     "mountpoint": "/mnt/audiobooks",
     "vers": "2.0",
     "sec": "ntlmsspi",

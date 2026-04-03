@@ -26,7 +26,7 @@ def _cf(method, path, data=None):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method=method,
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=10) as resp:
         result = json.loads(resp.read())
     if not result.get("success"):
         raise RuntimeError(f"Cloudflare API error: {result.get('errors')}")
@@ -34,25 +34,31 @@ def _cf(method, path, data=None):
 
 
 def _public_ip():
-    with urllib.request.urlopen("https://api.ipify.org") as resp:
-        return resp.read().decode().strip()
+    for url in ("https://api4.ipify.org", "https://ipv4.icanhazip.com", "https://ipv4.wtfismyip.com/text"):
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                return resp.read().decode().strip()
+        except Exception:
+            continue
+    raise RuntimeError("Could not determine public IP from any service")
 
 
-def _ensure_a_record(subdomain, ip):
+def _ensure_record(subdomain, ip, rtype):
     fqdn = f"{subdomain}.{DOMAIN}"
-    records = _cf("GET", f"/dns_records?name={fqdn}&type=A")
-    payload = {"type": "A", "name": fqdn, "content": ip, "proxied": False, "ttl": 120}
+    records = _cf("GET", f"/dns_records?name={fqdn}&type={rtype}")
+    payload = {"type": rtype, "name": fqdn, "content": ip, "proxied": False, "ttl": 120}
 
     if records:
         record_id = records[0]["id"]
         if records[0]["content"] == ip:
-            logger.info(f"DNS {fqdn} already → {ip}, skipping")
+            logger.info(f"DNS {fqdn} {rtype} already → {ip}, skipping")
             return
         _cf("PUT", f"/dns_records/{record_id}", payload)
-        logger.info(f"DNS updated {fqdn} → {ip}")
+        logger.info(f"DNS updated {fqdn} {rtype} → {ip}")
     else:
         _cf("POST", "/dns_records", payload)
-        logger.info(f"DNS created {fqdn} → {ip}")
+        logger.info(f"DNS created {fqdn} {rtype} → {ip}")
+
 
 
 def configure_dns(state=None, host=None):
@@ -61,9 +67,10 @@ def configure_dns(state=None, host=None):
     logger.info(f"Public IP: {public_ip}")
 
     for subdomain in ("hcc", "pihole", "abs", "vpn"):
-        _ensure_a_record(subdomain, lan_ip)
+        _ensure_record(subdomain, lan_ip, "A")
 
-    _ensure_a_record("wg", public_ip)
+    _ensure_record("wg", public_ip, "A")
+    # AAAA record for wg is managed by cloudflare-ddns.sh on the Pi (IPv6 via Elisa 5G passthrough)
 
 
 python.call(name="Configure Cloudflare DNS records", function=configure_dns)

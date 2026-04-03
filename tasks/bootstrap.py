@@ -30,6 +30,7 @@ apt.packages(
         "htop",
         "sqlite3",
         "cifs-utils",
+        "winbind",
         "wireguard-tools",
         "fail2ban",
         "unattended-upgrades",
@@ -39,6 +40,17 @@ apt.packages(
         "iptables",
     ],
     update=True,
+)
+
+server.shell(
+    name="Enable wins in nsswitch.conf",
+    commands=[
+        """
+        if ! grep -q 'wins' /etc/nsswitch.conf; then
+          sed -i 's/^hosts:.*/& wins/' /etc/nsswitch.conf
+        fi
+        """,
+    ],
 )
 
 files.directory(

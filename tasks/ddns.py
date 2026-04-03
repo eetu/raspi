@@ -16,27 +16,36 @@ CF_TOKEN=$(grep '^CF_DNS_API_TOKEN=' /etc/secrets/cloudflare.env | cut -d= -f2-)
 ZONE_ID=$(grep '^zone_id=' /etc/secrets/cloudflare.env | cut -d= -f2-)
 RECORD_NAME="wg.{DOMAIN}"
 
-CURRENT_IP=$(curl -sf https://api.ipify.org)
-if [ -z "$CURRENT_IP" ]; then
-    echo "cloudflare-ddns: failed to get public IP" >&2
-    exit 1
-fi
+_update_record() {{
+    local TYPE="$1" CURRENT="$2"
+    [ -z "$CURRENT" ] && return 0
 
-RECORD=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${{ZONE_ID}}/dns_records?name=${{RECORD_NAME}}&type=A" \\
-    -H "Authorization: Bearer ${{CF_TOKEN}}")
-RECORD_ID=$(echo "$RECORD" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null || true)
-DNS_IP=$(echo "$RECORD"   | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['content'])" 2>/dev/null || true)
+    RECORD=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${{ZONE_ID}}/dns_records?name=${{RECORD_NAME}}&type=${{TYPE}}" \\
+        -H "Authorization: Bearer ${{CF_TOKEN}}")
+    RECORD_ID=$(echo "$RECORD" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null || true)
+    DNS_IP=$(echo "$RECORD"   | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['content'])" 2>/dev/null || true)
 
-if [ "$CURRENT_IP" = "$DNS_IP" ]; then
-    exit 0
-fi
+    if [ "$CURRENT" = "$DNS_IP" ]; then return 0; fi
 
-curl -sf -X PUT "https://api.cloudflare.com/client/v4/zones/${{ZONE_ID}}/dns_records/${{RECORD_ID}}" \\
-    -H "Authorization: Bearer ${{CF_TOKEN}}" \\
-    -H "Content-Type: application/json" \\
-    --data "{{\\"type\\":\\"A\\",\\"name\\":\\"${{RECORD_NAME}}\\",\\"content\\":\\"${{CURRENT_IP}}\\",\\"ttl\\":120}}" > /dev/null
+    if [ -n "$RECORD_ID" ]; then
+        curl -sf -X PUT "https://api.cloudflare.com/client/v4/zones/${{ZONE_ID}}/dns_records/${{RECORD_ID}}" \\
+            -H "Authorization: Bearer ${{CF_TOKEN}}" \\
+            -H "Content-Type: application/json" \\
+            --data "{{\\"type\\":\\"${{TYPE}}\\",\\"name\\":\\"${{RECORD_NAME}}\\",\\"content\\":\\"${{CURRENT}}\\",\\"ttl\\":120}}" > /dev/null
+    else
+        curl -sf -X POST "https://api.cloudflare.com/client/v4/zones/${{ZONE_ID}}/dns_records" \\
+            -H "Authorization: Bearer ${{CF_TOKEN}}" \\
+            -H "Content-Type: application/json" \\
+            --data "{{\\"type\\":\\"${{TYPE}}\\",\\"name\\":\\"${{RECORD_NAME}}\\",\\"content\\":\\"${{CURRENT}}\\",\\"ttl\\":120}}" > /dev/null
+    fi
+    logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{TYPE}} ${{DNS_IP}} -> ${{CURRENT}}"
+}}
 
-logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{DNS_IP}} -> ${{CURRENT_IP}}"
+CURRENT_IP=$(curl -sf https://api4.ipify.org || curl -sf https://ipv4.icanhazip.com || curl -sf https://ipv4.wtfismyip.com/text || true)
+CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ {{print $2}}' | cut -d/ -f1 | head -1)
+
+_update_record A "$CURRENT_IP"
+_update_record AAAA "$CURRENT_IP6"
 """
 
 ddns_service = """\

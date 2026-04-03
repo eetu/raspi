@@ -1,6 +1,7 @@
 """WireGuard: keypair generation, wg0.conf, IP forwarding, systemd."""
 
 import base64
+import hashlib
 import io
 
 from pyinfra import logger
@@ -80,10 +81,25 @@ server.shell(
 
 # --- systemd ---
 
+_wg_hash = hashlib.sha256(wg0_conf.encode()).hexdigest()
+
 systemd.service(
     name="Enable wg-quick@wg0",
     service="wg-quick@wg0",
     enabled=True,
     running=True,
     daemon_reload=True,
+)
+
+server.shell(
+    name="Restart WireGuard if config changed",
+    commands=[
+        f"""
+        STAMP=/etc/wireguard/.pyinfra-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_wg_hash}" ]; then
+          systemctl restart wg-quick@wg0
+          echo '{_wg_hash}' > "$STAMP"
+        fi
+        """,
+    ],
 )
