@@ -12,8 +12,8 @@ from group_data.all import NETWORK, PIHOLE
 
 setup_vars = f"""\
 PIHOLE_INTERFACE=eth0
-PIHOLE_DNS_1={PIHOLE["dns1"]}
-PIHOLE_DNS_2={PIHOLE["dns2"]}
+PIHOLE_DNS_1={PIHOLE["upstreams"][0]}
+PIHOLE_DNS_2={PIHOLE["upstreams"][1]}
 QUERY_LOGGING=true
 INSTALL_WEB_SERVER=true
 INSTALL_WEB_INTERFACE=true
@@ -129,13 +129,15 @@ server.shell(
     ],
 )
 
-# --- Upstream DNS (Quad9 unfiltered, no DNSSEC) ---
+# --- Upstream DNS (Quad9 unfiltered, no DNSSEC — IPv4 + IPv6) ---
+
+_upstreams_json = ", ".join(f'"{s}"' for s in PIHOLE["upstreams"])
 
 server.shell(
     name="Set upstream DNS servers",
     commands=[
         f"""
-        WANT='["{PIHOLE["dns1"]}", "{PIHOLE["dns2"]}"]'
+        WANT='[{_upstreams_json}]'
         CURRENT=$(pihole-FTL --config dns.upstreams 2>/dev/null || true)
         if [ "$CURRENT" != "$WANT" ]; then
           pihole-FTL --config dns.upstreams "$WANT"

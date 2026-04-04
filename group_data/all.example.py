@@ -21,8 +21,12 @@ WIREGUARD = {
 
 PIHOLE = {
     "host": "127.0.0.1",
-    "dns1": "9.9.9.10",  # Quad9 unfiltered, no DNSSEC
-    "dns2": "149.112.112.10",
+    "upstreams": [
+        "9.9.9.10",  # Quad9 unfiltered, no DNSSEC (IPv4)
+        "149.112.112.10",  # Quad9 unfiltered, no DNSSEC (IPv4)
+        "2620:fe::10",  # Quad9 unfiltered, no DNSSEC (IPv6)
+        "2620:fe::fe:10",  # Quad9 unfiltered, no DNSSEC (IPv6)
+    ],
     "web_port": 8080,  # moved off 80 so Traefik owns it
     # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
     # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
