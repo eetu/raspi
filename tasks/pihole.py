@@ -150,7 +150,7 @@ systemd.service(
 
 # --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---
 
-_subdomains = ["hcc", "pihole", "abs", "vpn"]
+_subdomains = ["hcc", "pihole", "abs", "vpn", "ntfy", "status"]
 _local_dns = (
     "\n".join(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in _subdomains) + "\n"
 )

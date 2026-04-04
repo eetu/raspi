@@ -9,6 +9,7 @@ Item structure in the 'raspi' folder:
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
   hcc               secure note (notes = env file contents)
   pihole            login  password=admin_password
+  kuma-uptime       login  username/password   (used for first-run web UI setup)
 """
 
 import functools
@@ -85,6 +86,11 @@ def cloudflare() -> dict:
         "token": item["login"]["password"],
         "zone_id": _fields("cloudflare")["zone_id"],
     }
+
+
+def kuma_creds() -> dict:
+    login = _get_item("kuma-uptime")["login"]
+    return {"username": login["username"], "password": login["password"]}
 
 
 def wg_server_key() -> dict:

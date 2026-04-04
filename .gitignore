@@ -14,3 +14,5 @@ wheels/
 .venv
 
 PLAN.md
+
+*.log
