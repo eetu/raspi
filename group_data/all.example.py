@@ -62,3 +62,24 @@ CIFS = {
     "vers": "2.0",
     "sec": "ntlmsspi",
 }
+
+NTFY = {
+    "host": "127.0.0.1",
+    "port": 8090,
+    "image": "docker.io/binwiederhier/ntfy:v2.21.0",
+    "topic": "raspi-alerts",  # topic used by system notifications (Diun, Trivy, version checks)
+}
+
+UPTIME_KUMA = {
+    "host": "127.0.0.1",
+    "port": 3001,
+    "image": "docker.io/louislam/uptime-kuma:2.2.1",
+}
+
+DIUN = {
+    "image": "docker.io/crazymax/diun:4.28.0",
+}
+
+TRIVY = {
+    "version": "0.69.3",
+}

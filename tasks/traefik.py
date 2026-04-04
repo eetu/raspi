@@ -5,7 +5,16 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import AUDIOBOOKSHELF, HCC, NETWORK, PIHOLE, TRAEFIK, WGPORTAL
+from group_data.all import (
+    AUDIOBOOKSHELF,
+    HCC,
+    NETWORK,
+    NTFY,
+    PIHOLE,
+    TRAEFIK,
+    UPTIME_KUMA,
+    WGPORTAL,
+)
 
 VERSION = TRAEFIK["version"]
 BINARY_URL = (
@@ -145,6 +154,20 @@ http:
       tls:
         certResolver: cloudflare
 
+    ntfy:
+      rule: "Host(`ntfy.{DOMAIN}`)"
+      service: ntfy
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
+    status:
+      rule: "Host(`status.{DOMAIN}`)"
+      service: status
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -172,6 +195,16 @@ http:
       loadBalancer:
         servers:
           - url: "http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
+
+    ntfy:
+      loadBalancer:
+        servers:
+          - url: "http://{NTFY["host"]}:{NTFY["port"]}"
+
+    status:
+      loadBalancer:
+        servers:
+          - url: "http://{UPTIME_KUMA["host"]}:{UPTIME_KUMA["port"]}"
 """
 
 files.put(
