@@ -24,12 +24,13 @@ Wants=network-online.target
 Image={NTFY["image"]}
 Network=host
 Volume=/etc/ntfy/server.yml:/etc/ntfy/server.yml:ro
-Volume=/var/lib/ntfy:/var/lib/ntfy
+Volume=/run/ntfy:/var/lib/ntfy
 Exec=serve
 
 [Service]
 Restart=always
 RestartSec=10
+RuntimeDirectory=ntfy
 
 [Install]
 WantedBy=multi-user.target
@@ -37,15 +38,14 @@ WantedBy=multi-user.target
 
 _quadlet_hash = hashlib.sha256((quadlet + server_yml).encode()).hexdigest()
 
-for path in ("/etc/ntfy", "/var/lib/ntfy"):
-    files.directory(
-        name=f"Create {path}",
-        path=path,
-        user="root",
-        group="root",
-        mode="755",
-        present=True,
-    )
+files.directory(
+    name="Create /etc/ntfy",
+    path="/etc/ntfy",
+    user="root",
+    group="root",
+    mode="755",
+    present=True,
+)
 
 files.put(
     name="Write ntfy server.yml",
