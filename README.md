@@ -49,10 +49,11 @@ cp group_data/all.example.py group_data/all.py   # fill in IPs, domain, NAS shar
 cp inventory.example.py inventory.py              # fill in SSH host and key path
 ```
 
-**2. Install dependencies**
+**2. Install dependencies and hooks**
 
 ```sh
 uv sync
+./install-hooks.sh
 ```
 
 **3. Unlock Bitwarden**
