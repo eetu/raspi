@@ -38,6 +38,7 @@ apt.packages(
         "ufw",
         "podman",
         "iptables",
+        "systemd-zram-generator",
     ],
     update=True,
 )

@@ -74,6 +74,17 @@ files.put(
     mode="600",
 )
 
+_wg_creds_env = f"WG_PORTAL_USER='{creds['username']}'\nWG_PORTAL_TOKEN='{creds['api_token']}'\n"
+
+files.put(
+    name="Write wg-portal API credentials",
+    src=io.BytesIO(_wg_creds_env.encode()),
+    dest="/etc/secrets/wg-portal.env",
+    user="root",
+    group="root",
+    mode="600",
+)
+
 # --- systemd service ---
 
 service_unit = """\
@@ -89,6 +100,10 @@ WorkingDirectory=/etc/wg-portal
 ExecStart=/usr/local/bin/wg-portal serve
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/wg-portal
+PrivateTmp=true
 AmbientCapabilities=CAP_NET_ADMIN
 
 [Install]
@@ -129,7 +144,6 @@ server.shell(
 )
 
 _wg_base_url = f"http://{WGPORTAL['host']}:{WGPORTAL['port']}"
-_wg_auth = f"{creds['username']}:{creds['api_token']}"
 _wg_endpoint = f"wg.{NETWORK['domain']}:{WIREGUARD['port']}"
 _wg_dns = WIREGUARD["ip"]
 
@@ -137,19 +151,24 @@ server.shell(
     name="Set wg0 PeerDefEndpoint via API",
     commands=[
         f"""
+        . /etc/secrets/wg-portal.env
+        NETRC=$(mktemp)
+        chmod 600 "$NETRC"
+        printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
+        trap 'rm -f "$NETRC"' EXIT
+
         BASE_URL="{_wg_base_url}"
-        AUTH="{_wg_auth}"
         ENDPOINT="{_wg_endpoint}"
         DNS="{_wg_dns}"
 
         for i in $(seq 1 15); do
           STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
-            -u "$AUTH" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
+            --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
           if [ "$STATUS" = "200" ]; then break; fi
           sleep 2
         done
 
-        IFACE=$(curl -sf -u "$AUTH" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
+        IFACE=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
         if [ -z "$IFACE" ]; then echo "wg-portal: failed to get interface" >&2; exit 1; fi
 
         CURRENT_EP=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefEndpoint',''))")
@@ -170,7 +189,7 @@ print(json.dumps(d))
 
         curl -sf -X PUT "$BASE_URL/api/v1/interface/by-id/wg0" \
           -H "Content-Type: application/json" \
-          -u "$AUTH" \
+          --netrc-file "$NETRC" \
           -d "$IFACE" >/dev/null
         """,
     ],
@@ -183,17 +202,22 @@ server.shell(
         PEER_STAMP=/etc/wg-portal/.pyinfra-peer-stamp
         if [ -f "$PEER_STAMP" ]; then exit 0; fi
 
+        . /etc/secrets/wg-portal.env
+        NETRC=$(mktemp)
+        chmod 600 "$NETRC"
+        printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
+        trap 'rm -f "$NETRC"' EXIT
+
         BASE_URL="http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
-        AUTH="{creds["username"]}:{creds["api_token"]}"
 
         for i in $(seq 1 15); do
           STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
-            -u "$AUTH" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
+            --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
           if [ "$STATUS" = "200" ]; then break; fi
           sleep 2
         done
 
-        PEER=$(curl -sf -u "$AUTH" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
+        PEER=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
         if [ -z "$PEER" ]; then echo "wg-portal: failed to prepare peer" >&2; exit 1; fi
 
         PEER=$(echo "$PEER" | python3 -c "
@@ -214,7 +238,7 @@ print(json.dumps(d))
         HTTP_CODE=$(curl -s -o /dev/null -w '%{{http_code}}' \
           -X POST "$BASE_URL/api/v1/peer/new" \
           -H "Content-Type: application/json" \
-          -u "$AUTH" \
+          --netrc-file "$NETRC" \
           -d "$PEER" 2>/dev/null)
 
         if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then

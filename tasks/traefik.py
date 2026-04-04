@@ -44,13 +44,13 @@ for path in ("/etc/traefik", "/etc/traefik/dynamic"):
     files.directory(
         name=f"Create {path}",
         path=path,
-        user="root",
-        group="root",
+        user="traefik",
+        group="traefik",
         mode="750",
         present=True,
     )
 
-# acme.json must exist with mode 600 or Traefik refuses to start
+# acme.json must exist with mode 600, owned by traefik, or Traefik refuses to start
 server.shell(
     name="Create acme.json",
     commands=[
@@ -59,6 +59,7 @@ server.shell(
           touch /etc/traefik/acme.json
           chmod 600 /etc/traefik/acme.json
         fi
+        chown traefik:traefik /etc/traefik/acme.json
         """,
     ],
 )
@@ -226,12 +227,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=traefik
 EnvironmentFile=/etc/secrets/cloudflare.env
 ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/static.yaml
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]

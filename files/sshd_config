@@ -8,6 +8,14 @@ AuthorizedKeysFile .ssh/authorized_keys
 
 AllowUsers eetu
 
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+UseDNS no
+AllowTcpForwarding no
+PermitTunnel no
+
 X11Forwarding no
 PrintMotd no
 AcceptEnv LANG LC_*

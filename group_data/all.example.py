@@ -24,6 +24,14 @@ PIHOLE = {
     "dns1": "9.9.9.10",  # Quad9 unfiltered, no DNSSEC
     "dns2": "149.112.112.10",
     "web_port": 8080,  # moved off 80 so Traefik owns it
+    # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
+    # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
+    #   python3 -c "import urllib.request, hashlib; v='v6.x.y'; \
+    #     print(hashlib.sha256(urllib.request.urlopen(
+    #       f'https://raw.githubusercontent.com/pi-hole/pi-hole/{v}/automated%20install/basic-install.sh'
+    #     ).read()).hexdigest())"
+    "version": "v6.4.1",
+    "installer_sha256": "a86c23c0c0911496585e9e73ec6d5fc2a60b68b135d9ba678569d9476d676e16",
     "blocklists": [
         "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.txt",
         "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt",

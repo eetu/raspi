@@ -40,12 +40,25 @@ files.put(
 
 # --- Install (skipped if already installed) ---
 
+_pihole_installer_url = (
+    f"https://raw.githubusercontent.com/pi-hole/pi-hole/{PIHOLE['version']}"
+    "/automated%20install/basic-install.sh"
+)
+
 server.shell(
-    name="Install Pi-hole (unattended)",
+    name=f"Install Pi-hole {PIHOLE['version']} (unattended)",
     commands=[
-        """
+        f"""
         if ! command -v pihole >/dev/null 2>&1; then
-          curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
+          INSTALLER=$(mktemp)
+          curl -fsSL "{_pihole_installer_url}" -o "$INSTALLER"
+          echo '{PIHOLE["installer_sha256"]}  '"$INSTALLER" | sha256sum -c - || {{
+            echo "Pi-hole installer SHA-256 mismatch — aborting" >&2
+            rm -f "$INSTALLER"
+            exit 1
+          }}
+          bash "$INSTALLER" --unattended
+          rm -f "$INSTALLER"
         fi
         """,
     ],
@@ -68,19 +81,9 @@ server.shell(
 
 # --- Admin password ---
 
-_pw_hash = hashlib.sha256(bw.pihole_password().encode()).hexdigest()
-
 server.shell(
     name="Set Pi-hole admin password",
-    commands=[
-        f"""
-        STAMP=/etc/pihole/.pw-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_pw_hash}" ]; then
-          pihole setpassword '{bw.pihole_password()}'
-          echo '{_pw_hash}' > "$STAMP"
-        fi
-        """,
-    ],
+    commands=[f"pihole setpassword '{bw.pihole_password()}'"],
 )
 
 # --- Blocklists + gravity (INSERT OR IGNORE is idempotent; gravity guarded by stamp) ---
@@ -146,6 +149,21 @@ systemd.service(
     service="pihole-FTL",
     enabled=True,
     running=True,
+)
+
+# --- Reduce SD writes: flush query DB every 60 min instead of default 1 min ---
+
+server.shell(
+    name="Set Pi-hole FTL database write interval (60 min)",
+    commands=[
+        """
+        WANT="60"
+        CURRENT=$(pihole-FTL --config database.DBinterval 2>/dev/null | tr -d '[:space:]' || true)
+        if [ "$CURRENT" != "$WANT" ]; then
+          pihole-FTL --config database.DBinterval 60
+        fi
+        """,
+    ],
 )
 
 # --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---

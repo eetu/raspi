@@ -303,7 +303,7 @@ files.put(
     dest="/usr/local/bin/kuma-setup.py",
     user="root",
     group="root",
-    mode="755",
+    mode="700",
 )
 
 server.shell(
