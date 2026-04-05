@@ -93,3 +93,16 @@ server.shell(
         """,
     ],
 )
+
+server.shell(
+    name="Pull latest HCC image and restart if updated",
+    commands=[
+        f"""
+        NEW=$(podman pull -q {HCC["image"]})
+        CUR=$(podman inspect --format '{{{{.Image}}}}' hcc 2>/dev/null || echo "")
+        if [ "$NEW" != "$CUR" ]; then
+          systemctl restart hcc
+        fi
+        """,
+    ],
+)

@@ -39,6 +39,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
 | `cloudflare` | Cloudflare API token + zone ID |
 | `kuma-uptime` | Uptime Kuma admin credentials (used for first-run web UI setup) |
+| `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
 
 ## Setup
 
@@ -169,9 +170,11 @@ All alerts are delivered to the ntfy topic configured in `NTFY["topic"]` (defaul
 
 ### Container image updates — Diun
 
-Diun polls container registries every 6 hours. It alerts when:
+Diun polls container registries every 6 hours and alerts when:
 - The digest for a running image tag has changed (e.g. a security patch published under the same tag)
-- A newer semver tag exists for any running image (`watchRepo: true`)
+- A newer semver tag exists for any running image (only the 10 most recent clean `vX.Y.Z` tags are checked — arch-specific variants are excluded to keep API calls low)
+
+Docker Hub credentials from Bitwarden are used to avoid unauthenticated pull rate limits.
 
 No setup required — runs automatically after deploy.
 

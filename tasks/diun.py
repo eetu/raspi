@@ -5,9 +5,11 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
+import vault as bw
 from group_data.all import DIUN, NETWORK, NTFY
 
 DOMAIN = NETWORK["domain"]
+_dh = bw.dockerhub_creds()
 
 diun_config = f"""\
 watch:
@@ -19,8 +21,17 @@ notif:
     endpoint: "https://ntfy.{DOMAIN}"
     topic: "{NTFY["topic"]}"
 
+regopts:
+  - name: "index.docker.io"
+    username: "{_dh["username"]}"
+    password: "{_dh["password"]}"
+
 defaults:
   watchRepo: true
+  sortTags: semver
+  maxTags: 10
+  includeRepoTags:
+    - "^v?\\d+\\.\\d+\\.\\d+$"
 
 providers:
   docker:
