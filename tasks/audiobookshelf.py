@@ -2,11 +2,52 @@
 
 import hashlib
 import io
+import json
+import re
+import urllib.request
 
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import AUDIOBOOKSHELF, CIFS
+
+
+def _latest_abs_tag() -> str:
+    """Query ghcr.io for the latest tag matching the current major version."""
+    major = AUDIOBOOKSHELF["image"].split(":")[-1].split(".")[0]
+    pattern = re.compile(rf"^{re.escape(major)}\.\d+\.\d+$")
+
+    with urllib.request.urlopen(
+        "https://ghcr.io/token?scope=repository:advplyr/audiobookshelf:pull&service=ghcr.io"
+    ) as r:
+        token = json.loads(r.read())["token"]
+
+    tags: list[str] = []
+    url: str | None = "https://ghcr.io/v2/advplyr/audiobookshelf/tags/list?n=1000"
+    while url:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req) as r:
+            tags.extend(json.loads(r.read()).get("tags", []))
+            link = r.headers.get("Link", "")
+        url = next(
+            (p.split(";")[0].strip().strip("<>") for p in link.split(",") if 'rel="next"' in p),
+            None,
+        )
+
+    matching = sorted(
+        (t for t in tags if pattern.match(t)),
+        key=lambda t: tuple(int(x) for x in t.split(".")),
+    )
+    if not matching:
+        raise RuntimeError(f"No audiobookshelf tags found for major version {major}")
+    return matching[-1]
+
+
+_image = (
+    f"ghcr.io/advplyr/audiobookshelf:{_latest_abs_tag()}"
+    if AUDIOBOOKSHELF.get("resolve_latest")
+    else AUDIOBOOKSHELF["image"]
+)
 
 quadlet = f"""\
 [Unit]
@@ -15,7 +56,7 @@ After=network-online.target mnt-audiobooks.automount
 Wants=network-online.target mnt-audiobooks.automount
 
 [Container]
-Image={AUDIOBOOKSHELF["image"]}
+Image={_image}
 Network=host
 Volume={CIFS["mountpoint"]}/OpenAudible/books:/audiobooks:ro
 Volume=/var/lib/audiobookshelf/config:/config
@@ -25,6 +66,11 @@ Environment=PORT={AUDIOBOOKSHELF["port"]}
 Environment=HOST={AUDIOBOOKSHELF["host"]}
 AutoUpdate=registry
 Pull=newer
+HealthCmd=CMD-SHELL nc -z 127.0.0.1 {AUDIOBOOKSHELF["port"]}
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=60s
 
 [Service]
 Restart=always
