@@ -10,6 +10,7 @@ Item structure in the 'raspi' folder:
   hcc               secure note (notes = env file contents)
   pihole            login  password=admin_password
   kuma-uptime       login  username/password   (used for first-run web UI setup)
+  dockerhub         login  username/password   (personal access token from hub.docker.com/settings/security)
 """
 
 import functools
@@ -96,6 +97,11 @@ def kuma_creds() -> dict:
 def wg_server_key() -> dict:
     f = _fields("wireguard-server-key")
     return {k: v for k, v in f.items() if v}
+
+
+def dockerhub_creds() -> dict:
+    login = _get_item("dockerhub")["login"]
+    return {"username": login["username"], "password": login["password"]}
 
 
 def save_wg_server_key(private_key: str, public_key: str) -> None:
