@@ -22,7 +22,7 @@ notif:
     topic: "{NTFY["topic"]}"
 
 regopts:
-  - name: "index.docker.io"
+  - name: "docker.io"
     username: "{_dh["username"]}"
     password: "{_dh["password"]}"
 
@@ -30,8 +30,8 @@ defaults:
   watchRepo: true
   sortTags: semver
   maxTags: 10
-  includeRepoTags:
-    - "^v?\\d+\\.\\d+\\.\\d+$"
+  includeTags:
+    - '^v?\\d+\\.\\d+\\.\\d+$'
 
 providers:
   docker:
