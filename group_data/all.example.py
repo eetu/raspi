@@ -53,7 +53,10 @@ AUDIOBOOKSHELF = {
     "host": "127.0.0.1",
     "port": 13378,
     "books_path": "/mnt/audiobooks/OpenAudible/books",
+    # Pinned to a specific tag (no floating major tag available).
+    # Set resolve_latest=True to install the latest major.x at deploy time.
     "image": "ghcr.io/advplyr/audiobookshelf:2.33.1",
+    "resolve_latest": False,
 }
 
 WGPORTAL = {
@@ -78,18 +81,14 @@ CIFS = {
 NTFY = {
     "host": "127.0.0.1",
     "port": 8090,
-    "image": "docker.io/binwiederhier/ntfy:v2.21.0",
-    "topic": "raspi-alerts",  # topic used by system notifications (Diun, Trivy, version checks)
+    "image": "docker.io/binwiederhier/ntfy:v2",
+    "topic": "raspi-alerts",  # topic used by system notifications (Trivy, version checks)
 }
 
 UPTIME_KUMA = {
     "host": "127.0.0.1",
     "port": 3001,
-    "image": "docker.io/louislam/uptime-kuma:2.2.1",
-}
-
-DIUN = {
-    "image": "docker.io/crazymax/diun:4.28.0",
+    "image": "docker.io/louislam/uptime-kuma:2",
 }
 
 TRIVY = {

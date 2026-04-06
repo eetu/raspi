@@ -22,6 +22,12 @@ Environment=UPTIME_KUMA_HOST={UPTIME_KUMA["host"]}
 Environment=UPTIME_KUMA_PORT={UPTIME_KUMA["port"]}
 Environment=UPTIME_KUMA_TRUST_PROXY=1
 AddCapability=CAP_NET_RAW
+AutoUpdate=registry
+HealthCmd=CMD-SHELL curl -sf http://localhost:{UPTIME_KUMA["port"]}/
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
 
 [Service]
 Restart=always
@@ -128,7 +134,7 @@ def _seed():
     monitor_ids.append(_ensure_ping(cur, uid, "Internet", "1.1.1.1"))
 
     docker_host_id = _ensure_docker_host(cur, uid)
-    for container in ["hcc", "audiobookshelf", "ntfy", "diun", "uptime-kuma"]:
+    for container in ["hcc", "audiobookshelf", "ntfy", "uptime-kuma"]:
         monitor_ids.append(_ensure_docker_monitor(cur, uid, docker_host_id, container))
 
     for mid in monitor_ids:
