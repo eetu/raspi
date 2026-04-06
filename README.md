@@ -13,10 +13,11 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Audiobookshelf](https://www.audiobookshelf.org) | Audiobook server, reads from NAS over CIFS |
 | [ntfy](https://ntfy.sh) | Self-hosted push notification server |
 | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | Service monitoring dashboard |
+| [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
 | [Diun](https://github.com/crazy-max/diun) | Container image update notifier |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 
-HCC, Audiobookshelf, ntfy, Uptime Kuma and Diun run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
+HCC, Audiobookshelf, ntfy, Uptime Kuma, Vaultwarden and Diun run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
 
 ## Prerequisites
 
@@ -40,6 +41,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `cloudflare` | Cloudflare API token + zone ID |
 | `kuma-uptime` | Uptime Kuma admin credentials (used for first-run web UI setup) |
 | `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
+| `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
 
 ## Setup
 
@@ -88,6 +90,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `vpn.yourdomain.com` | WireGuard peer management |
 | `ntfy.yourdomain.com` | Push notification server |
 | `status.yourdomain.com` | Uptime Kuma monitoring |
+| `vault.yourdomain.com` | Vaultwarden password vault |
 
 ## ntfy mobile app setup
 
@@ -163,6 +166,37 @@ Wire Uptime Kuma alerts into ntfy so you get a push notification when anything g
 2. Choose type **ntfy**
 3. Set server URL to `https://ntfy.yourdomain.com` and topic to e.g. `raspi-alerts`
 4. Apply the notification to all monitors
+
+## Vaultwarden setup
+
+Vaultwarden is a self-hosted Bitwarden-compatible vault. Useful for sharing secrets internally — all Bitwarden clients can connect to both bitwarden.com and a self-hosted instance simultaneously.
+
+**1. Generate the admin token hash (once)**
+
+```sh
+brew install argon2
+printf 'your-password' | argon2 "$(openssl rand -base64 24)" -id -t 3 -m 16 -p 4 -l 32 -e
+```
+
+Store the output (`$argon2id$v=19$...`) in a hidden custom field named `admin_token` on the `raspi/vaultwarden` Bitwarden item. Store your plain-text admin password in the `password` field.
+
+**2. Create your user account**
+
+New signups are disabled by default. To register the first account:
+
+1. Go to `https://vault.yourdomain.com/admin` and log in with your plain-text admin password
+2. Go to **General Settings** → enable **Allow new signups** → Save
+3. Go to `https://vault.yourdomain.com` → **Create Account** → register
+4. Back in admin → disable signups again
+
+**3. Connect Bitwarden clients**
+
+In the Bitwarden desktop app or browser extension you can be logged into multiple accounts on different servers simultaneously:
+
+1. Click the account icon → **Add account**
+2. Before entering credentials, click the region selector and choose **Self-hosted**
+3. Set the server URL to `https://vault.yourdomain.com`
+4. Log in with the account you created
 
 ## Security and update monitoring
 

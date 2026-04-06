@@ -11,6 +11,10 @@ Item structure in the 'raspi' folder:
   pihole            login  password=admin_password
   kuma-uptime       login  username/password   (used for first-run web UI setup)
   dockerhub         login  username/password   (personal access token from hub.docker.com/settings/security)
+  vaultwarden       login  password=admin_password (plain text, for logging in)
+                           fields: admin_token (hidden, argon2 hash; generate with:
+                             docker run --rm -it vaultwarden/server /vaultwarden hash --preset owasp)
+                                   smtp_password (hidden, Gmail app password)
 """
 
 import functools
@@ -97,6 +101,14 @@ def kuma_creds() -> dict:
 def wg_server_key() -> dict:
     f = _fields("wireguard-server-key")
     return {k: v for k, v in f.items() if v}
+
+
+def vaultwarden_admin_token_hash() -> str:
+    return _fields("vaultwarden")["admin_token"]
+
+
+def vaultwarden_smtp_password() -> str:
+    return _fields("vaultwarden")["smtp_password"]
 
 
 def dockerhub_creds() -> dict:

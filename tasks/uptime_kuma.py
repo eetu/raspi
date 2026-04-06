@@ -123,6 +123,7 @@ def _seed():
         ("Audiobookshelf",   f"https://abs.{DOMAIN}"),
         ("WireGuard portal", f"https://vpn.{DOMAIN}"),
         ("ntfy",             f"https://ntfy.{DOMAIN}"),
+        ("Vaultwarden",      f"https://vault.{DOMAIN}"),
     ]:
         monitor_ids.append(_ensure_http(cur, uid, name, url))
 
@@ -134,7 +135,7 @@ def _seed():
     monitor_ids.append(_ensure_ping(cur, uid, "Internet", "1.1.1.1"))
 
     docker_host_id = _ensure_docker_host(cur, uid)
-    for container in ["hcc", "audiobookshelf", "ntfy", "uptime-kuma"]:
+    for container in ["hcc", "audiobookshelf", "ntfy", "uptime-kuma", "vaultwarden"]:
         monitor_ids.append(_ensure_docker_monitor(cur, uid, docker_host_id, container))
 
     for mid in monitor_ids:
