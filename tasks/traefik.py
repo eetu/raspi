@@ -13,6 +13,7 @@ from group_data.all import (
     PIHOLE,
     TRAEFIK,
     UPTIME_KUMA,
+    VAULTWARDEN,
     WGPORTAL,
 )
 
@@ -169,6 +170,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    vault:
+      rule: "Host(`vault.{DOMAIN}`)"
+      service: vault
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -206,6 +214,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{UPTIME_KUMA["host"]}:{UPTIME_KUMA["port"]}"
+
+    vault:
+      loadBalancer:
+        servers:
+          - url: "http://{VAULTWARDEN["host"]}:{VAULTWARDEN["port"]}"
 """
 
 files.put(
