@@ -7,6 +7,7 @@ Item structure in the 'raspi' folder:
   audiobookshelf    login  username/password   fields: cifs_username, cifs_password
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
+  asus-router              SSH key item        (uses Bitwarden SSH key type)
   hcc               secure note (notes = env file contents)
   pihole            login  password=admin_password
   kuma-uptime       login  username/password   (used for first-run web UI setup)
@@ -109,6 +110,12 @@ def vaultwarden_admin_token_hash() -> str:
 
 def vaultwarden_smtp_password() -> str:
     return _fields("vaultwarden")["smtp_password"]
+
+
+def asus_router_ssh() -> dict:
+    item = _get_item("asus-router")
+    ssh = item["sshKey"]
+    return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
 
 
 def dockerhub_creds() -> dict:

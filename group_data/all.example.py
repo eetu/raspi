@@ -5,6 +5,8 @@ NETWORK = {
     "lan_cidr": "192.168.x.0/24",  # your LAN subnet
     "lan_ip": "192.168.x.y",  # static IP reserved for the Pi
     "router": "192.168.x.1",  # your router
+    "router_user": "your-router-username",  # SSH user on the router
+    "router_ssh_port": 22,  # SSH port on the router
     "domain": "yourdomain.com",  # domain managed in Cloudflare
 }
 
