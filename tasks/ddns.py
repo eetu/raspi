@@ -1,12 +1,35 @@
-"""Cloudflare DDNS: shell script + systemd timer to keep wg.anarkisti.com current."""
+"""Cloudflare DDNS: shell script + systemd timer to keep wg.anarkisti.com current.
+Also updates the Asus router ip6tables rule via SSH when the IPv6 prefix changes.
+"""
 
 import io
 
 from pyinfra.operations import files, systemd
 
+import vault as bw
 from group_data.all import NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
+
+_router_configured = bool(NETWORK.get("router_ssh_port"))
+_router_key = bw.asus_router_ssh() if _router_configured else None
+
+if _router_configured:
+    _router_fn = (
+        "_update_router_firewall() {\n"
+        "    ssh -i /etc/secrets/router_id_ed25519 \\\n"
+        "        -o StrictHostKeyChecking=accept-new \\\n"
+        "        -o BatchMode=yes \\\n"
+        "        -o ConnectTimeout=10 \\\n"
+        f"        -p {NETWORK['router_ssh_port']} \\\n"
+        f"        {NETWORK['router_user']}@{NETWORK['router']} \\\n"
+        '        || logger "cloudflare-ddns: router firewall update failed"\n'
+        "}\n"
+    )
+    _router_call = '    if [ "$TYPE" = "AAAA" ]; then _update_router_firewall; fi\n'
+else:
+    _router_fn = ""
+    _router_call = ""
 
 _ipv4_block = (
     (
@@ -25,6 +48,7 @@ CF_TOKEN=$(grep '^CF_DNS_API_TOKEN=' /etc/secrets/cloudflare.env | cut -d= -f2-)
 ZONE_ID=$(grep '^zone_id=' /etc/secrets/cloudflare.env | cut -d= -f2-)
 RECORD_NAME="wg.{DOMAIN}"
 
+{_router_fn}
 _update_record() {{
     local TYPE="$1" CURRENT="$2"
     [ -z "$CURRENT" ] && return 0
@@ -48,9 +72,9 @@ _update_record() {{
             --data "{{\\"type\\":\\"${{TYPE}}\\",\\"name\\":\\"${{RECORD_NAME}}\\",\\"content\\":\\"${{CURRENT}}\\",\\"ttl\\":120}}" > /dev/null
     fi
     logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{TYPE}} ${{DNS_IP}} -> ${{CURRENT}}"
-}}
+{_router_call}}}
 
-CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ {{print $2}}' | cut -d/ -f1 | head -1)
+CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ && !/deprecated/ {{print $2}}' | cut -d/ -f1 | head -1)
 {_ipv4_block}
 _update_record AAAA "$CURRENT_IP6"
 """
@@ -78,6 +102,16 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 """
+
+if _router_configured:
+    files.put(
+        name="Write Asus router SSH private key",
+        src=io.BytesIO((_router_key["private_key"].strip() + "\n").encode()),
+        dest="/etc/secrets/router_id_ed25519",
+        user="root",
+        group="root",
+        mode="600",
+    )
 
 files.put(
     name="Write cloudflare-ddns.sh",

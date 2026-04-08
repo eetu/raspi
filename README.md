@@ -14,10 +14,9 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [ntfy](https://ntfy.sh) | Self-hosted push notification server |
 | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | Service monitoring dashboard |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
-| [Diun](https://github.com/crazy-max/diun) | Container image update notifier |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 
-HCC, Audiobookshelf, ntfy, Uptime Kuma, Vaultwarden and Diun run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
+HCC, Audiobookshelf, ntfy, Uptime Kuma and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
 
 ## Prerequisites
 
@@ -42,6 +41,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `kuma-uptime` | Uptime Kuma admin credentials (used for first-run web UI setup) |
 | `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
 | `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
+| `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
 ## Setup
 
@@ -75,7 +75,7 @@ uv run pyinfra inventory.py deploy.py
 **5. Manual steps after first deploy**
 
 - Router: add DHCP DNS server → Pi's LAN IP
-- Router: add NAT rule UDP 51820 → Pi's LAN IP (for WireGuard)
+- Router: add firewall rule UDP 51820 → Pi's LAN IP (for WireGuard IPv4)
 - Cloudflare: add DNS A records (or let the deploy task handle it automatically)
 
 ## Services
@@ -197,6 +197,40 @@ In the Bitwarden desktop app or browser extension you can be logged into multipl
 2. Before entering credentials, click the region selector and choose **Self-hosted**
 3. Set the server URL to `https://vault.yourdomain.com`
 4. Log in with the account you created
+
+## IPv6 DDNS and router firewall automation
+
+The DDNS timer runs every 5 minutes and updates the `wg.<domain>` AAAA record in Cloudflare when the Pi's global IPv6 changes (ISPs periodically rotate the /64 prefix).
+
+**Optional: automatic router firewall update (Asus routers)**
+
+Tested on Asus routers with stock Asuswrt firmware. Other routers may work if they support SSH, JFFS persistent scripts, and `ip6tables`, but are not supported by this repo.
+
+If your router's IPv6 firewall pins the WireGuard rule to a specific host address, it will break when the prefix rotates. The DDNS script can SSH into the router on prefix change and swap the `ip6tables` rule automatically.
+
+**Router setup (one-time):**
+
+1. Enable SSH (LAN only) on the router admin UI
+2. Set `PI_MAC` in `files/router-update-wg-firewall.sh` to the Pi's Ethernet MAC (`ip link show eth0 | grep ether`)
+3. Copy the script to the router and set up persistence:
+   ```sh
+   scp files/router-update-wg-firewall.sh USER@ROUTER:/jffs/scripts/update-wg-firewall.sh
+   ssh USER@ROUTER chmod +x /jffs/scripts/update-wg-firewall.sh
+   ssh USER@ROUTER 'echo "/jffs/scripts/update-wg-firewall.sh" >> /jffs/scripts/firewall-start && chmod +x /jffs/scripts/firewall-start'
+   ```
+4. Create a Bitwarden SSH key item named `asus-router` in the `raspi` folder
+5. Add the public key to the router's authorized_keys with a `command=` restriction:
+   ```
+   command="/jffs/scripts/update-wg-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
+   ```
+6. Add to `group_data/all.py`:
+   ```python
+   NETWORK = {
+       ...
+       "router_user": "your-username",
+       "router_ssh_port": 22,
+   }
+   ```
 
 ## Security and update monitoring
 
