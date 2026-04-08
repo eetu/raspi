@@ -96,3 +96,11 @@ UPTIME_KUMA = {
 TRIVY = {
     "version": "0.69.3",
 }
+
+VAULTWARDEN = {
+    "host": "127.0.0.1",
+    "port": 8085,
+    # No floating major tag; resolve_latest fetches the latest 1.x.x at deploy time.
+    "image": "docker.io/vaultwarden/server:1.33.2",
+    "resolve_latest": True,
+}
