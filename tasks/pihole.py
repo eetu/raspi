@@ -6,14 +6,15 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import NETWORK, PIHOLE
+from group_data.all import NETWORK, PIHOLE, UNBOUND
 
 # --- setupVars for unattended installer ---
 
+_unbound_upstream = f"127.0.0.1#{UNBOUND['port']}"
+
 setup_vars = f"""\
 PIHOLE_INTERFACE=eth0
-PIHOLE_DNS_1={PIHOLE["upstreams"][0]}
-PIHOLE_DNS_2={PIHOLE["upstreams"][1]}
+PIHOLE_DNS_1={_unbound_upstream}
 QUERY_LOGGING=true
 INSTALL_WEB_SERVER=true
 INSTALL_WEB_INTERFACE=true
@@ -131,13 +132,11 @@ server.shell(
 
 # --- Upstream DNS (Quad9 unfiltered, no DNSSEC — IPv4 + IPv6) ---
 
-_upstreams_json = ", ".join(f'"{s}"' for s in PIHOLE["upstreams"])
-
 server.shell(
-    name="Set upstream DNS servers",
+    name="Set upstream DNS to Unbound",
     commands=[
         f"""
-        WANT='[{_upstreams_json}]'
+        WANT='["{_unbound_upstream}"]'
         CURRENT=$(pihole-FTL --config dns.upstreams 2>/dev/null || true)
         if [ "$CURRENT" != "$WANT" ]; then
           pihole-FTL --config dns.upstreams "$WANT"
@@ -146,11 +145,30 @@ server.shell(
     ],
 )
 
+files.directory(
+    name="Create pihole-FTL.service.d drop-in dir",
+    path="/etc/systemd/system/pihole-FTL.service.d",
+    user="root",
+    group="root",
+    mode="755",
+    present=True,
+)
+
+files.put(
+    name="Cap pihole-FTL memory at 128M",
+    src=io.BytesIO(b"[Service]\nMemoryMax=128M\n"),
+    dest="/etc/systemd/system/pihole-FTL.service.d/memory.conf",
+    user="root",
+    group="root",
+    mode="644",
+)
+
 systemd.service(
     name="Enable pihole-FTL",
     service="pihole-FTL",
     enabled=True,
     running=True,
+    daemon_reload=True,
 )
 
 # --- Reduce SD writes: flush query DB every 60 min instead of default 1 min ---
@@ -163,6 +181,21 @@ server.shell(
         CURRENT=$(pihole-FTL --config database.DBinterval 2>/dev/null | tr -d '[:space:]' || true)
         if [ "$CURRENT" != "$WANT" ]; then
           pihole-FTL --config database.DBinterval 60
+        fi
+        """,
+    ],
+)
+
+# --- Limit query history to avoid unbounded DB growth (default is 365 days) ---
+
+server.shell(
+    name=f"Set Pi-hole query history retention ({PIHOLE['history_days']} days)",
+    commands=[
+        f"""
+        WANT="{PIHOLE["history_days"]}"
+        CURRENT=$(pihole-FTL --config database.maxDBdays 2>/dev/null | tr -d '[:space:]' || true)
+        if [ "$CURRENT" != "$WANT" ]; then
+          pihole-FTL --config database.maxDBdays "$WANT"
         fi
         """,
     ],

@@ -2,38 +2,15 @@
 
 import hashlib
 import io
-import json
-import re
-import urllib.request
 
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import AUDIOBOOKSHELF, CIFS
-
-
-def _latest_abs_tag() -> str:
-    """Query GitHub releases for the latest tag matching the current major version."""
-    major = AUDIOBOOKSHELF["image"].split(":")[-1].split(".")[0]
-    pattern = re.compile(rf"^{re.escape(major)}\.\d+\.\d+$")
-
-    req = urllib.request.Request(
-        "https://api.github.com/repos/advplyr/audiobookshelf/releases?per_page=5",
-        headers={"Accept": "application/vnd.github+json"},
-    )
-    with urllib.request.urlopen(req) as r:
-        releases = json.loads(r.read())
-
-    matching = [
-        r["tag_name"].lstrip("v") for r in releases if pattern.match(r["tag_name"].lstrip("v"))
-    ]
-    if not matching:
-        raise RuntimeError(f"No audiobookshelf releases found for major version {major}")
-    return matching[0]
-
+from tasks.util import resolve_latest
 
 _image = (
-    f"ghcr.io/advplyr/audiobookshelf:{_latest_abs_tag()}"
+    resolve_latest("advplyr/audiobookshelf", AUDIOBOOKSHELF["image"])
     if AUDIOBOOKSHELF.get("resolve_latest")
     else AUDIOBOOKSHELF["image"]
 )
@@ -65,6 +42,7 @@ HealthStartPeriod=60s
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target

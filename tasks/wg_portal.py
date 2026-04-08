@@ -105,6 +105,7 @@ ProtectSystem=strict
 ReadWritePaths=/etc/wg-portal
 PrivateTmp=true
 AmbientCapabilities=CAP_NET_ADMIN
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

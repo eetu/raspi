@@ -21,15 +21,16 @@ WIREGUARD = {
     # "public_ipv4": True,
 }
 
+UNBOUND = {
+    "port": 5335,
+    "msg_cache_mb": 50,  # message cache — increase to 100 if you have RAM to spare
+    "rrset_cache_mb": 100,  # RRset cache should be ~2x msg_cache
+}
+
 PIHOLE = {
     "host": "127.0.0.1",
-    "upstreams": [
-        "9.9.9.10",  # Quad9 unfiltered, no DNSSEC (IPv4)
-        "149.112.112.10",  # Quad9 unfiltered, no DNSSEC (IPv4)
-        "2620:fe::10",  # Quad9 unfiltered, no DNSSEC (IPv6)
-        "2620:fe::fe:10",  # Quad9 unfiltered, no DNSSEC (IPv6)
-    ],
     "web_port": 8080,  # moved off 80 so Traefik owns it
+    "history_days": 7,  # query log retention; default is 365
     # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
     # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
     #   python3 -c "import urllib.request, hashlib; v='v6.x.y'; \
@@ -87,10 +88,12 @@ NTFY = {
     "topic": "raspi-alerts",  # topic used by system notifications (Trivy, version checks)
 }
 
-UPTIME_KUMA = {
+GATUS = {
     "host": "127.0.0.1",
     "port": 3001,
-    "image": "docker.io/louislam/uptime-kuma:2",
+    "image": "ghcr.io/twin/gatus:v5.35.0",
+    "resolve_latest": True,
+    "memory_max": "64M",
 }
 
 TRIVY = {

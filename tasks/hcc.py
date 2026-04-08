@@ -34,6 +34,7 @@ HealthStartPeriod=30s
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
+MemoryMax=128M
 
 [Install]
 WantedBy=multi-user.target
