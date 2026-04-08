@@ -74,7 +74,7 @@ _update_record() {{
     logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{TYPE}} ${{DNS_IP}} -> ${{CURRENT}}"
 {_router_call}}}
 
-CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ {{print $2}}' | cut -d/ -f1 | head -1)
+CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ && !/deprecated/ {{print $2}}' | cut -d/ -f1 | head -1)
 {_ipv4_block}
 _update_record AAAA "$CURRENT_IP6"
 """
