@@ -7,12 +7,12 @@ from pyinfra.operations import files, server, systemd
 
 from group_data.all import (
     AUDIOBOOKSHELF,
+    GATUS,
     HCC,
     NETWORK,
     NTFY,
     PIHOLE,
     TRAEFIK,
-    UPTIME_KUMA,
     VAULTWARDEN,
     WGPORTAL,
 )
@@ -97,7 +97,7 @@ providers:
     watch: true
 
 log:
-  level: INFO
+  level: WARN
 
 api:
   dashboard: false
@@ -213,7 +213,7 @@ http:
     status:
       loadBalancer:
         servers:
-          - url: "http://{UPTIME_KUMA["host"]}:{UPTIME_KUMA["port"]}"
+          - url: "http://{GATUS["host"]}:{GATUS["port"]}"
 
     vault:
       loadBalancer:
@@ -248,6 +248,7 @@ RestartSec=5
 NoNewPrivileges=true
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

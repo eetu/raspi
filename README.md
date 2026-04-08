@@ -12,11 +12,11 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [HCC](https://github.com/eetu/hcc) | Home control dashboard |
 | [Audiobookshelf](https://www.audiobookshelf.org) | Audiobook server, reads from NAS over CIFS |
 | [ntfy](https://ntfy.sh) | Self-hosted push notification server |
-| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | Service monitoring dashboard |
+| [Gatus](https://github.com/TwiN/gatus) | Service monitoring and status page |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 
-HCC, Audiobookshelf, ntfy, Uptime Kuma and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
+HCC, Audiobookshelf, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
 
 ## Prerequisites
 
@@ -38,7 +38,6 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
 | `cloudflare` | Cloudflare API token + zone ID |
-| `kuma-uptime` | Uptime Kuma admin credentials (used for first-run web UI setup) |
 | `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
 | `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
@@ -89,7 +88,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `abs.yourdomain.com` | Audiobookshelf |
 | `vpn.yourdomain.com` | WireGuard peer management |
 | `ntfy.yourdomain.com` | Push notification server |
-| `status.yourdomain.com` | Uptime Kuma monitoring |
+| `status.yourdomain.com` | Gatus status page |
 | `vault.yourdomain.com` | Vaultwarden password vault |
 
 ## ntfy mobile app setup
@@ -134,38 +133,6 @@ The ntfy server is behind the firewall and only reachable from LAN or WireGuard.
 - Open port 443 to the internet on your router (exposes all HTTPS services, not just ntfy)
 
 > The simplest approach: set your WireGuard client to connect automatically on untrusted networks.
-
-## Uptime Kuma setup
-
-Uptime Kuma has no credentials set at deploy time — the first visit creates the admin account.
-
-1. Open `https://status.yourdomain.com` while on LAN or WireGuard
-2. Create an admin username and password
-3. Add monitors — see suggestions below
-
-**Suggested monitors**
-
-| Name | Type | Target |
-|---|---|---|
-| HCC | HTTP(s) | `https://hcc.yourdomain.com` |
-| Pi-hole | HTTP(s) | `https://pihole.yourdomain.com/admin` |
-| Audiobookshelf | HTTP(s) | `https://abs.yourdomain.com` |
-| WireGuard portal | HTTP(s) | `https://vpn.yourdomain.com` |
-| ntfy | HTTP(s) | `https://ntfy.yourdomain.com` |
-| WireGuard port | UDP Port | `yourdomain.com` port `51820` |
-| NAS | Ping | NAS hostname or IP |
-| Pi | Ping | Pi's LAN IP |
-| DNS | DNS | query `pi-hole.net` via Pi's LAN IP |
-| TLS cert | HTTP(s) | `https://hcc.yourdomain.com` (enable cert expiry alert) |
-
-**Notifications**
-
-Wire Uptime Kuma alerts into ntfy so you get a push notification when anything goes down:
-
-1. In Uptime Kuma go to **Settings → Notifications → Add notification**
-2. Choose type **ntfy**
-3. Set server URL to `https://ntfy.yourdomain.com` and topic to e.g. `raspi-alerts`
-4. Apply the notification to all monitors
 
 ## Vaultwarden setup
 

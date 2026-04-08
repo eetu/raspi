@@ -37,6 +37,7 @@ HealthStartPeriod=15s
 Restart=always
 RestartSec=10
 RuntimeDirectory=ntfy
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

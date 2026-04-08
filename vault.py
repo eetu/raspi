@@ -10,7 +10,6 @@ Item structure in the 'raspi' folder:
   asus-router              SSH key item        (uses Bitwarden SSH key type)
   hcc               secure note (notes = env file contents)
   pihole            login  password=admin_password
-  kuma-uptime       login  username/password   (used for first-run web UI setup)
   dockerhub         login  username/password   (personal access token from hub.docker.com/settings/security)
   vaultwarden       login  password=admin_password (plain text, for logging in)
                            fields: admin_token (hidden, argon2 hash; generate with:
@@ -92,11 +91,6 @@ def cloudflare() -> dict:
         "token": item["login"]["password"],
         "zone_id": _fields("cloudflare")["zone_id"],
     }
-
-
-def kuma_creds() -> dict:
-    login = _get_item("kuma-uptime")["login"]
-    return {"username": login["username"], "password": login["password"]}
 
 
 def wg_server_key() -> dict:

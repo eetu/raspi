@@ -1,6 +1,6 @@
 """Podman: already installed via bootstrap packages.
-Enable the API socket (required for Uptime Kuma container monitoring)
-and the auto-update timer. Configure Docker Hub auth to avoid pull rate limits.
+Enable the API socket and the auto-update timer.
+Configure Docker Hub auth to avoid pull rate limits.
 """
 
 import base64

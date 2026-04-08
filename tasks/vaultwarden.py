@@ -2,38 +2,15 @@
 
 import hashlib
 import io
-import json
-import re
-import urllib.request
 
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import NETWORK, VAULTWARDEN
-
-
-def _latest_vaultwarden_tag() -> str:
-    """Query GitHub releases for the latest tag matching the current major version."""
-    major = VAULTWARDEN["image"].split(":")[-1].split(".")[0]
-    pattern = re.compile(rf"^{re.escape(major)}\.\d+\.\d+$")
-
-    req = urllib.request.Request(
-        "https://api.github.com/repos/dani-garcia/vaultwarden/releases?per_page=5",
-        headers={"Accept": "application/vnd.github+json"},
-    )
-    with urllib.request.urlopen(req) as r:
-        releases = json.loads(r.read())
-
-    matching = [
-        r["tag_name"].lstrip("v") for r in releases if pattern.match(r["tag_name"].lstrip("v"))
-    ]
-    if not matching:
-        raise RuntimeError(f"No vaultwarden releases found for major version {major}")
-    return matching[0]
-
+from tasks.util import resolve_latest
 
 _image = (
-    f"docker.io/vaultwarden/server:{_latest_vaultwarden_tag()}"
+    resolve_latest("dani-garcia/vaultwarden", VAULTWARDEN["image"])
     if VAULTWARDEN.get("resolve_latest")
     else VAULTWARDEN["image"]
 )
@@ -56,6 +33,7 @@ EnvironmentFile=/etc/secrets/vaultwarden.env
 [Service]
 Restart=always
 RestartSec=10
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target
