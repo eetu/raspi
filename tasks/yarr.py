@@ -6,13 +6,10 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import NETWORK, YARR
+from group_data.all import YARR
 
 VERSION = YARR["version"]
-BINARY_URL = (
-    f"https://github.com/nkanaev/yarr/releases/download/{VERSION}/"
-    f"yarr_linux_arm64.zip"
-)
+BINARY_URL = f"https://github.com/nkanaev/yarr/releases/download/{VERSION}/yarr_linux_arm64.zip"
 
 # --- Binary ---
 
