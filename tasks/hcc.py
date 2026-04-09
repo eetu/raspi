@@ -24,6 +24,7 @@ Environment=HOSTNAME={HCC["host"]}
 EnvironmentFile=/etc/secrets/hcc.env
 AutoUpdate=registry
 Pull=newer
+Exec=node --max-old-space-size=150 server.js
 HealthCmd=CMD-SHELL nc -z 127.0.0.1 {HCC["port"]}
 HealthInterval=30s
 HealthTimeout=5s
@@ -34,7 +35,8 @@ HealthStartPeriod=30s
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
-MemoryMax=128M
+MemoryMax=256M
+MemorySwapMax=256M
 
 [Install]
 WantedBy=multi-user.target
