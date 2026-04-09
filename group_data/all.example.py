@@ -107,3 +107,9 @@ VAULTWARDEN = {
     "image": "docker.io/vaultwarden/server:1.33.2",
     "resolve_latest": True,
 }
+
+YARR = {
+    "host": "127.0.0.1",
+    "port": 7070,
+    "version": "v2.6",
+}

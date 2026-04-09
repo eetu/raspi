@@ -15,6 +15,7 @@ Item structure in the 'raspi' folder:
                            fields: admin_token (hidden, argon2 hash; generate with:
                              docker run --rm -it vaultwarden/server /vaultwarden hash --preset owasp)
                                    smtp_password (hidden, Gmail app password)
+  yarr              login  username/password   (use alphanumeric-only password — no colons)
 """
 
 import functools
@@ -110,6 +111,11 @@ def asus_router_ssh() -> dict:
     item = _get_item("asus-router")
     ssh = item["sshKey"]
     return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
+
+
+def yarr_creds() -> dict:
+    login = _get_item("yarr")["login"]
+    return {"username": login["username"], "password": login["password"]}
 
 
 def dockerhub_creds() -> dict:

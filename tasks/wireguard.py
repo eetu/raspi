@@ -63,6 +63,24 @@ files.put(
     mode="600",
 )
 
+# --- Kernel modules ---
+# ip6table_nat must be loaded before wg-quick@wg0 starts, otherwise
+# ip6tables MASQUERADE fails at boot (module not yet auto-loaded).
+
+files.put(
+    name="Load ip6table_nat at boot",
+    src=io.BytesIO(b"ip6table_nat\n"),
+    dest="/etc/modules-load.d/ip6table_nat.conf",
+    user="root",
+    group="root",
+    mode="644",
+)
+
+server.shell(
+    name="Load ip6table_nat now",
+    commands=["modprobe ip6table_nat"],
+)
+
 # --- IP forwarding ---
 
 files.put(

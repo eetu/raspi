@@ -25,5 +25,9 @@ def resolve_latest(repo: str, image: str) -> str:
     if not matching:
         raise RuntimeError(f"No {repo} releases found for major version {major}")
 
+    original_tag = image.split(":")[-1]
+    tag = matching[0]
+    if not original_tag.startswith("v"):
+        tag = tag.lstrip("v")
     base = image.rsplit(":", 1)[0]
-    return f"{base}:{matching[0]}"
+    return f"{base}:{tag}"

@@ -15,6 +15,7 @@ from group_data.all import (
     TRAEFIK,
     VAULTWARDEN,
     WGPORTAL,
+    YARR,
 )
 
 VERSION = TRAEFIK["version"]
@@ -177,6 +178,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    rss:
+      rule: "Host(`rss.{DOMAIN}`)"
+      service: rss
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -219,6 +227,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{VAULTWARDEN["host"]}:{VAULTWARDEN["port"]}"
+
+    rss:
+      loadBalancer:
+        servers:
+          - url: "http://{YARR["host"]}:{YARR["port"]}"
 """
 
 files.put(
