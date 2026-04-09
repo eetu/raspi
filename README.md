@@ -7,16 +7,19 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | Service | Purpose |
 |---|---|
 | [Pi-hole](https://pi-hole.net) | Network-wide ad and tracker blocking, DNS server |
+| [Unbound](https://nlnetlabs.nl/projects/unbound/) | Recursive DNS resolver (upstream for Pi-hole) |
 | [WireGuard](https://www.wireguard.com) + [wg-portal](https://github.com/h44z/wg-portal) | VPN for secure access from outside the LAN |
 | [Traefik](https://traefik.io) | Reverse proxy with automatic HTTPS (wildcard cert via Let's Encrypt + Cloudflare DNS) |
 | [HCC](https://github.com/eetu/hcc) | Home control dashboard |
 | [Audiobookshelf](https://www.audiobookshelf.org) | Audiobook server, reads from NAS over CIFS |
+| [Navidrome](https://www.navidrome.org) | Music streaming server, reads from NAS over CIFS |
+| [Yarr](https://github.com/nkanaev/yarr) | Self-hosted RSS reader |
 | [ntfy](https://ntfy.sh) | Self-hosted push notification server |
 | [Gatus](https://github.com/TwiN/gatus) | Service monitoring and status page |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 
-HCC, Audiobookshelf, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy and other services run as native binaries.
+HCC, Audiobookshelf, Navidrome, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy, Unbound, Yarr and other services run as native binaries.
 
 ## Prerequisites
 
@@ -35,6 +38,8 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `hcc` | HCC environment variables (API keys, Hue bridge, room config) |
 | `pihole` | Pi-hole admin password |
 | `audiobookshelf` | ABS admin credentials (`login`), NAS share credentials (`cifs_username`, `cifs_password` fields), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
+| `navidrome` | Navidrome admin credentials (`login`), music NAS share credentials (`cifs_username`, `cifs_password` hidden fields) |
+| `yarr` | Yarr login credentials (`login`) |
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
 | `cloudflare` | Cloudflare API token + zone ID |
@@ -85,7 +90,9 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 |---|---|
 | `hcc.yourdomain.com` | HCC dashboard |
 | `pihole.yourdomain.com` | Pi-hole admin |
-| `abs.yourdomain.com` | Audiobookshelf |
+| `audiobooks.yourdomain.com` | Audiobookshelf |
+| `music.yourdomain.com` | Navidrome |
+| `rss.yourdomain.com` | Yarr RSS reader |
 | `vpn.yourdomain.com` | WireGuard peer management |
 | `ntfy.yourdomain.com` | Push notification server |
 | `status.yourdomain.com` | Gatus status page |
@@ -139,7 +146,7 @@ The ntfy server is behind the firewall and only reachable from LAN or WireGuard.
 The deploy creates a scoped API key in ABS (named `mobile`, acts on behalf of the root user) and writes it to Bitwarden (`raspi/audiobookshelf → api_key` hidden field). Retrieve it and enter it in the app:
 
 1. Unlock Bitwarden and run `bw get item audiobookshelf` — copy the `api_key` field value
-2. Open the app → set the server URL to `https://abs.yourdomain.com`
+2. Open the app → set the server URL to `https://audiobooks.yourdomain.com`
 3. Enter the API key when prompted
 
 **To rotate the API key:** clear the `api_key` field in Bitwarden and redeploy — the old key is deleted and a new one is created.
