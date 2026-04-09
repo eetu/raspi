@@ -17,7 +17,8 @@ _image = (
 _config_yaml = f"""\
 alerting:
   ntfy:
-    url: "https://ntfy.{DOMAIN}/{NTFY["topic"]}"
+    url: "https://ntfy.{DOMAIN}"
+    topic: "{NTFY["topic"]}"
     default-alert:
       enabled: true
       failure-threshold: 3
