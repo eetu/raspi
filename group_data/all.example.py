@@ -73,12 +73,23 @@ TRAEFIK = {
     "version": "v3.6.12",
 }
 
+HOSTS = {
+    "nasname": "192.168.x.y",  # NAS hostname → IP; add any host that needs a static /etc/hosts entry
+}
+
 CIFS = {
-    "share": "//nasname/sharename",  # NetBIOS hostname of your NAS
-    "host_ip": "192.168.x.y",  # current IP — update if it changes
-    "mountpoint": "/mnt/audiobooks",
-    "vers": "2.0",
-    "sec": "ntlmsspi",
+    "audiobooks": {
+        "share": "//nasname/audiobooks",  # NetBIOS hostname of your NAS
+        "mountpoint": "/mnt/audiobooks",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+    },
+    "music": {
+        "share": "//nasname/music",
+        "mountpoint": "/mnt/music",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+    },
 }
 
 NTFY = {
@@ -112,4 +123,11 @@ YARR = {
     "host": "127.0.0.1",
     "port": 7070,
     "version": "v2.6",
+}
+
+NAVIDROME = {
+    "host": "127.0.0.1",
+    "port": 4533,
+    "image": "docker.io/deluan/navidrome:0.61.1",
+    "resolve_latest": False,
 }

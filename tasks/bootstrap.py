@@ -1,5 +1,7 @@
 from pyinfra.operations import apt, files, server
 
+from group_data.all import HOSTS
+
 UPGRADE_STAMP = "/var/lib/apt/raspi-last-upgrade"
 UPGRADE_MAX_AGE_HOURS = 24
 
@@ -75,3 +77,18 @@ files.directory(
     mode="700",
     present=True,
 )
+
+for _hostname, _ip in HOSTS.items():
+    server.shell(
+        name=f"Set /etc/hosts entry for {_hostname}",
+        commands=[
+            f"""
+            ENTRY="{_ip} {_hostname}"
+            if grep -q "\\b{_hostname}\\b" /etc/hosts; then
+              sed -i "s/.*\\b{_hostname}\\b.*/$ENTRY/" /etc/hosts
+            else
+              echo "$ENTRY" >> /etc/hosts
+            fi
+            """,
+        ],
+    )

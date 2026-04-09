@@ -67,7 +67,17 @@ def _ensure_record(subdomain, ip, rtype):
 def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
 
-    for subdomain in ("hcc", "pihole", "abs", "vpn", "ntfy", "status", "vault", "rss"):
+    for subdomain in (
+        "hcc",
+        "pihole",
+        "audiobooks",
+        "vpn",
+        "ntfy",
+        "status",
+        "vault",
+        "rss",
+        "music",
+    ):
         _ensure_record(subdomain, lan_ip, "A")
 
     # wg AAAA record is managed by cloudflare-ddns.sh on the Pi (IPv6 via passthrough)

@@ -16,6 +16,7 @@ Item structure in the 'raspi' folder:
                              docker run --rm -it vaultwarden/server /vaultwarden hash --preset owasp)
                                    smtp_password (hidden, Gmail app password)
   yarr              login  username/password   (use alphanumeric-only password — no colons)
+  navidrome         login  username/password   fields: cifs_username, cifs_password (hidden)
 """
 
 import functools
@@ -142,6 +143,16 @@ def asus_router_ssh() -> dict:
     item = _get_item("asus-router")
     ssh = item["sshKey"]
     return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
+
+
+def navidrome_creds() -> dict:
+    login = _get_item("navidrome")["login"]
+    return {"username": login["username"], "password": login["password"]}
+
+
+def navidrome_cifs_creds() -> str:
+    f = _fields("navidrome")
+    return f"username={f['cifs_username']}\npassword={f['cifs_password']}\n"
 
 
 def yarr_creds() -> dict:
