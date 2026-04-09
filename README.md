@@ -34,7 +34,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 |---|---|
 | `hcc` | HCC environment variables (API keys, Hue bridge, room config) |
 | `pihole` | Pi-hole admin password |
-| `cifs-audiobooks` | NAS share credentials |
+| `audiobookshelf` | ABS admin credentials (`login`), NAS share credentials (`cifs_username`, `cifs_password` fields), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
 | `cloudflare` | Cloudflare API token + zone ID |
@@ -133,6 +133,18 @@ The ntfy server is behind the firewall and only reachable from LAN or WireGuard.
 - Open port 443 to the internet on your router (exposes all HTTPS services, not just ntfy)
 
 > The simplest approach: set your WireGuard client to connect automatically on untrusted networks.
+
+## Audiobookshelf mobile app setup
+
+The deploy creates a scoped API key in ABS (named `mobile`, acts on behalf of the root user) and writes it to Bitwarden (`raspi/audiobookshelf → api_key` hidden field). Retrieve it and enter it in the app:
+
+1. Unlock Bitwarden and run `bw get item audiobookshelf` — copy the `api_key` field value
+2. Open the app → set the server URL to `https://abs.yourdomain.com`
+3. Enter the API key when prompted
+
+**To rotate the API key:** clear the `api_key` field in Bitwarden and redeploy — the old key is deleted and a new one is created.
+
+The library is created automatically by the deploy and syncs from `/mnt/audiobooks/OpenAudible/books` on the NAS. New books are detected by the file watcher instantly; a full rescan runs every hour.
 
 ## Vaultwarden setup
 

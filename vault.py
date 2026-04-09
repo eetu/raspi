@@ -4,7 +4,7 @@ Bitwarden CLI helpers. Requires BW_SESSION env var to be set:
 
 Item structure in the 'raspi' folder:
   cloudflare        login  password=api_token  fields: zone_id
-  audiobookshelf    login  username/password   fields: cifs_username, cifs_password
+  audiobookshelf    login  username/password   fields: cifs_username, cifs_password, api_key (hidden)
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
   asus-router              SSH key item        (uses Bitwarden SSH key type)
@@ -75,6 +75,37 @@ def cifs_creds() -> str:
 def abs_creds() -> dict:
     login = _get_item("audiobookshelf")["login"]
     return {"username": login["username"], "password": login["password"]}
+
+
+def abs_api_key() -> str:
+    """Return the current ABS API key stored in Bitwarden, or empty string."""
+    return _fields("audiobookshelf").get("api_key", "") or ""
+
+
+def save_abs_api_key(token: str) -> None:
+    """Write the ABS user API token to the api_key hidden field."""
+    item = json.loads(json.dumps(_get_item("audiobookshelf")))  # copy
+    fields = item.get("fields") or []
+    existing = next((f for f in fields if f["name"] == "api_key"), None)
+    if existing:
+        existing["value"] = token
+    else:
+        fields.append({"name": "api_key", "value": token, "type": 1})
+    item["fields"] = fields
+    encoded = subprocess.run(
+        ["bw", "encode"],
+        input=json.dumps(item),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["bw", "edit", "item", item["id"], encoded],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    _get_item.cache_clear()
 
 
 def wg_portal_creds() -> dict:
