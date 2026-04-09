@@ -54,6 +54,19 @@ server.shell(
     ],
 )
 
+server.shell(
+    name="Enable memory cgroup controller (requires reboot if changed)",
+    commands=[
+        """
+        CMDLINE=/boot/firmware/cmdline.txt
+        if ! grep -q 'cgroup_memory=1' "$CMDLINE"; then
+          sed -i 's/$/ cgroup_memory=1 cgroup_enable=memory/' "$CMDLINE"
+          echo "REBOOT_REQUIRED: memory cgroup enabled"
+        fi
+        """,
+    ],
+)
+
 files.directory(
     name="Create /etc/secrets (700)",
     path="/etc/secrets",
