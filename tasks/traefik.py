@@ -9,6 +9,7 @@ from group_data.all import (
     AUDIOBOOKSHELF,
     GATUS,
     HCC,
+    NAVIDROME,
     NETWORK,
     NTFY,
     PIHOLE,
@@ -143,9 +144,9 @@ http:
       tls:
         certResolver: cloudflare
 
-    abs:
-      rule: "Host(`abs.{DOMAIN}`)"
-      service: abs
+    audiobooks:
+      rule: "Host(`audiobooks.{DOMAIN}`)"
+      service: audiobooks
       entryPoints: [websecure]
       tls:
         certResolver: cloudflare
@@ -185,6 +186,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    music:
+      rule: "Host(`music.{DOMAIN}`)"
+      service: music
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -203,7 +211,7 @@ http:
         servers:
           - url: "http://{PIHOLE["host"]}:{PIHOLE["web_port"]}"
 
-    abs:
+    audiobooks:
       loadBalancer:
         servers:
           - url: "http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
@@ -232,6 +240,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{YARR["host"]}:{YARR["port"]}"
+
+    music:
+      loadBalancer:
+        servers:
+          - url: "http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
 """
 
 files.put(

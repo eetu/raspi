@@ -105,7 +105,7 @@ endpoints:
       - type: ntfy
 
   - name: NAS
-    url: "icmp://{CIFS["host_ip"]}"
+    url: "icmp://{CIFS["audiobooks"]["share"].split("/")[2]}"
     interval: 1m
     conditions:
       - "[CONNECTED] == true"

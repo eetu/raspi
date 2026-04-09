@@ -20,6 +20,7 @@ def _put_secret(name, content, dest, mode="600", group="root"):
 
 _put_secret("hcc.env", bw.hcc_env(), "/etc/secrets/hcc.env")
 _put_secret("cifs-audiobooks", bw.cifs_creds(), "/etc/secrets/cifs-audiobooks")
+_put_secret("cifs-music", bw.navidrome_cifs_creds(), "/etc/secrets/cifs-music")
 
 cf = bw.cloudflare()
 _put_secret(

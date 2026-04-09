@@ -20,6 +20,8 @@ uv run ruff format .     # format
 
 No dry-run mode in pyinfra — linting + a careful read is the pre-commit check.
 
+A save hook runs `ruff format` automatically, which removes unused imports. When adding a new import, always include the code that uses it in the same edit — never add an import alone in one step and the usage in a separate step.
+
 ## Key files
 
 | File | Purpose |
@@ -43,7 +45,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -53,6 +55,10 @@ Use when: upstream provides a container image.
 5. Run `/usr/lib/systemd/system-generators/podman-system-generator` to regenerate units
 6. `systemd.service(running=True, daemon_reload=True)`
 7. Hash-based restart: separate stamps for quadlet hash and env file hash
+
+## Refactoring while adding services
+
+When planning a new service, look for opportunities to clean up existing code that the new service makes awkward — duplicated config keys, repeated patterns that can be looped, hardcoded values that should come from `all.py`. Propose these refactors as part of the plan, not as separate follow-up work.
 
 ## Adding a new service — checklist
 
@@ -84,6 +90,7 @@ Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the
 | 80 / 443 | Traefik |
 | 3000 | HCC |
 | 3001 | Gatus |
+| 4533 | Navidrome |
 | 5335 | Unbound (DNS) |
 | 7070 | Yarr |
 | 8080 | Pi-hole web UI |
