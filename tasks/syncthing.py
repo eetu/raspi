@@ -61,6 +61,23 @@ server.shell(
     ],
 )
 
+# --- Reverse proxy: disable host check via API (required when behind Traefik) ---
+
+server.shell(
+    name="Enable Syncthing insecureSkipHostcheck",
+    commands=[
+        """
+        API_KEY=$(grep -oP '(?<=<apikey>)[^<]+' /var/lib/syncthing/config.xml 2>/dev/null || true)
+        if [ -n "$API_KEY" ]; then
+          curl -sf -X PATCH -H "X-API-Key: $API_KEY" \
+            -H 'Content-Type: application/json' \
+            -d '{"insecureSkipHostcheck": true}' \
+            http://127.0.0.1:8384/rest/config/gui > /dev/null || true
+        fi
+        """,
+    ],
+)
+
 # --- systemd service ---
 
 service_unit = f"""\
