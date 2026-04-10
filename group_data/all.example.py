@@ -125,6 +125,12 @@ YARR = {
     "version": "v2.6",
 }
 
+SYNCTHING = {
+    "version": "v2.0.16",
+    "host": "127.0.0.1",
+    "port": 8384,
+}
+
 NAVIDROME = {
     "host": "127.0.0.1",
     "port": 4533,
