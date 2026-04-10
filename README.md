@@ -197,7 +197,11 @@ If your router's IPv6 firewall pins the WireGuard rule to a specific host addres
 **Router setup (one-time):**
 
 1. Enable SSH (LAN only) on the router admin UI
-2. Set `PI_MAC` in `files/router-update-wg-firewall.sh` to the Pi's Ethernet MAC (`ip link show eth0 | grep ether`)
+2. Copy the example script and set your Pi's MAC address:
+   ```sh
+   cp files/router-update-wg-firewall.sh.example files/router-update-wg-firewall.sh
+   # edit PI_MAC in files/router-update-wg-firewall.sh (ip link show eth0 | grep ether)
+   ```
 3. Copy the script to the router and set up persistence:
    ```sh
    scp files/router-update-wg-firewall.sh USER@ROUTER:/jffs/scripts/update-wg-firewall.sh

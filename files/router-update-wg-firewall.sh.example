@@ -14,7 +14,7 @@
 #   4. Add to authorized_keys on the router for the Pi's DDNS SSH key:
 #        command="/jffs/scripts/update-wg-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
 
-PI_MAC="dc:a6:32:0f:b8:67"  # Pi's Ethernet MAC — find with: ip link show eth0 | grep ether
+PI_MAC="xx:xx:xx:xx:xx:xx"  # Pi's Ethernet MAC — find with: ip link show eth0 | grep ether
 
 NEW_IP=$(ip -6 neigh show | awk "/${PI_MAC}/ && /^2/ {print \$1}" | head -1)
 if [ -z "$NEW_IP" ]; then

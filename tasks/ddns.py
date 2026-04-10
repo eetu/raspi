@@ -26,10 +26,8 @@ if _router_configured:
         '        || logger "cloudflare-ddns: router firewall update failed"\n'
         "}\n"
     )
-    _router_call = '    if [ "$TYPE" = "AAAA" ]; then _update_router_firewall; fi\n'
 else:
     _router_fn = ""
-    _router_call = ""
 
 _ipv4_block = (
     (
@@ -58,6 +56,7 @@ _update_record() {{
     RECORD_ID=$(echo "$RECORD" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null || true)
     DNS_IP=$(echo "$RECORD"   | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['content'])" 2>/dev/null || true)
 
+    if [ "$TYPE" = "AAAA" ]; then _update_router_firewall; fi
     if [ "$CURRENT" = "$DNS_IP" ]; then return 0; fi
 
     if [ -n "$RECORD_ID" ]; then
@@ -72,7 +71,7 @@ _update_record() {{
             --data "{{\\"type\\":\\"${{TYPE}}\\",\\"name\\":\\"${{RECORD_NAME}}\\",\\"content\\":\\"${{CURRENT}}\\",\\"ttl\\":120}}" > /dev/null
     fi
     logger "cloudflare-ddns: updated ${{RECORD_NAME}} ${{TYPE}} ${{DNS_IP}} -> ${{CURRENT}}"
-{_router_call}}}
+}}
 
 CURRENT_IP6=$(ip -6 addr show eth0 | awk '/inet6 2/ && !/deprecated/ {{print $2}}' | cut -d/ -f1 | head -1)
 {_ipv4_block}
