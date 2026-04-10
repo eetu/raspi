@@ -1,6 +1,7 @@
-# Installation-specific — copy the .example.py counterpart and fill in values
+# Installation-specific — copy the .example counterpart and fill in values
 group_data/all.py
 inventory.py
+files/router-update-wg-firewall.sh
 
 # Python-generated files
 __pycache__/
