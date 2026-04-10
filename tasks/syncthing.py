@@ -71,6 +71,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=HOME=/root
 ExecStart=/usr/local/bin/syncthing serve \
   --no-browser --no-restart \
   --config=/var/lib/syncthing \
