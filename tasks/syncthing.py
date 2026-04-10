@@ -73,6 +73,10 @@ server.shell(
             -H 'Content-Type: application/json' \
             -d '{"insecureSkipHostcheck": true}' \
             http://127.0.0.1:8384/rest/config/gui > /dev/null || true
+          curl -sf -X PATCH -H "X-API-Key: $API_KEY" \
+            -H 'Content-Type: application/json' \
+            -d '{"urAccepted": -1}' \
+            http://127.0.0.1:8384/rest/config/options > /dev/null || true
         fi
         """,
     ],
