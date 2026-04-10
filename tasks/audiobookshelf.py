@@ -54,7 +54,8 @@ WantedBy=multi-user.target
 
 _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 _creds = bw.abs_creds()
-# Pre-encode password as a JSON string so it's safely embeddable in shell regardless of special chars
+# Pre-encode as JSON strings so they're safely embeddable in shell regardless of special chars
+_abs_username_json = json.dumps(_creds["username"])
 _abs_password_json = json.dumps(_creds["password"])
 
 files.directory(
@@ -110,7 +111,7 @@ server.shell(
         done
         curl -sf -X POST "$ABS_URL/init" \
           -H "Content-Type: application/json" \
-          -d '{{"newRoot":{{"username":"{_creds["username"]}","password":"{_creds["password"]}"}}}}'  \
+          -d '{{"newRoot":{{"username":{_abs_username_json},"password":{_abs_password_json}}}}}'  \
           2>/dev/null || true
         """,
     ],
