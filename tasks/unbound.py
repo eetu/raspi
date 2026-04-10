@@ -73,6 +73,13 @@ server:
     verbosity: 0
     log-queries: no
     log-replies: no
+
+    # Special-use zones that must never be recursed (RFC 6762, RFC 6303).
+    # Matter/Thread devices query .service.arpa and .local for DNS-SD; returning
+    # NXDOMAIN immediately (instead of SERVFAIL from a failed recursion) prevents
+    # Thread border routers from retrying aggressively and losing track of devices.
+    local-zone: "service.arpa." static
+    local-zone: "local." static
 """
 
 _config_path = "/etc/unbound/unbound.conf.d/pihole.conf"
