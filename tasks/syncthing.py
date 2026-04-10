@@ -5,6 +5,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
+import vault as bw
 from group_data.all import SYNCTHING
 
 VERSION = SYNCTHING["version"]
@@ -12,6 +13,8 @@ BINARY_URL = (
     f"https://github.com/syncthing/syncthing/releases/download/{VERSION}/"
     f"syncthing-linux-arm64-{VERSION}.tar.gz"
 )
+
+_creds = bw.syncthing_creds()
 
 # --- Binary ---
 
@@ -41,6 +44,23 @@ files.directory(
     present=True,
 )
 
+# --- Initial config with GUI credentials (first run only) ---
+
+server.shell(
+    name="Initialize Syncthing config",
+    commands=[
+        f"""
+        if [ ! -f /var/lib/syncthing/config.xml ]; then
+          syncthing generate \
+            --config=/var/lib/syncthing \
+            --data=/var/lib/syncthing \
+            --gui-user={_creds["username"]!r} \
+            --gui-password={_creds["password"]!r}
+        fi
+        """,
+    ],
+)
+
 # --- systemd service ---
 
 service_unit = f"""\
@@ -52,10 +72,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/syncthing serve \
-  --no-browser --no-restart --logflags=0 \
+  --no-browser --no-restart \
   --config=/var/lib/syncthing \
   --data=/var/lib/syncthing \
-  --gui-address={SYNCTHING["host"]}:{SYNCTHING["port"]}
+  --gui-address=http://{SYNCTHING["host"]}:{SYNCTHING["port"]}
 Restart=always
 RestartSec=5
 NoNewPrivileges=true

@@ -17,6 +17,7 @@ Item structure in the 'raspi' folder:
                                    smtp_password (hidden, Gmail app password)
   yarr              login  username/password   (use alphanumeric-only password — no colons)
   navidrome         login  username/password   fields: cifs_username, cifs_password (hidden)
+  syncthing         login  username/password   (web UI credentials)
 """
 
 import functools
@@ -157,6 +158,11 @@ def navidrome_cifs_creds() -> str:
 
 def yarr_creds() -> dict:
     login = _get_item("yarr")["login"]
+    return {"username": login["username"], "password": login["password"]}
+
+
+def syncthing_creds() -> dict:
+    login = _get_item("syncthing")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 
