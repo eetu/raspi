@@ -43,7 +43,7 @@ endpoints:
       - type: ntfy
 
   - name: Audiobookshelf
-    url: "https://abs.{DOMAIN}"
+    url: "https://audiobooks.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
