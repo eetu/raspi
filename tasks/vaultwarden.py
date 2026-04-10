@@ -22,6 +22,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
+ContainerName=vaultwarden
 Image={_image}
 Network=host
 Volume=/var/lib/vaultwarden:/data
@@ -29,6 +30,11 @@ Environment=DOMAIN=https://vault.{NETWORK["domain"]}
 Environment=ROCKET_ADDRESS={VAULTWARDEN["host"]}
 Environment=ROCKET_PORT={VAULTWARDEN["port"]}
 EnvironmentFile=/etc/secrets/vaultwarden.env
+HealthCmd=CMD-SHELL nc -z 127.0.0.1 {VAULTWARDEN["port"]}
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
 
 [Service]
 Restart=always

@@ -17,6 +17,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
+ContainerName=hcc
 Image={HCC["image"]}
 Network=host
 Environment=PORT={HCC["port"]}

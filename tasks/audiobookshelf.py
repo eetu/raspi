@@ -25,6 +25,7 @@ After=network-online.target mnt-audiobooks.automount
 Wants=network-online.target mnt-audiobooks.automount
 
 [Container]
+ContainerName=audiobookshelf
 Image={_image}
 Network=host
 Volume={CIFS["audiobooks"]["mountpoint"]}/OpenAudible/books:/audiobooks:ro

@@ -21,6 +21,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
+ContainerName=ntfy
 Image={NTFY["image"]}
 Network=host
 Volume=/etc/ntfy/server.yml:/etc/ntfy/server.yml:ro

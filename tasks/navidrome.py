@@ -25,6 +25,7 @@ After=network-online.target mnt-music.automount
 Wants=network-online.target mnt-music.automount
 
 [Container]
+ContainerName=navidrome
 Image={_image}
 Network=host
 Volume=/var/lib/navidrome:/data
