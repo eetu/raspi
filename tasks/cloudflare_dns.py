@@ -77,6 +77,7 @@ def configure_dns(state=None, host=None):
         "vault",
         "rss",
         "music",
+        "syncthing",
     ):
         _ensure_record(subdomain, lan_ip, "A")
 

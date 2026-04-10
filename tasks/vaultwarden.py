@@ -58,8 +58,8 @@ files.put(
             f"SMTP_HOST=smtp.gmail.com\n"
             f"SMTP_PORT=587\n"
             f"SMTP_SECURITY=starttls\n"
-            f"SMTP_USERNAME=huecontrolcenter@gmail.com\n"
-            f"SMTP_FROM=huecontrolcenter@gmail.com\n"
+            f"SMTP_USERNAME={bw.vaultwarden_smtp_email()}\n"
+            f"SMTP_FROM={bw.vaultwarden_smtp_email()}\n"
             f"SMTP_PASSWORD={bw.vaultwarden_smtp_password()}\n"
         ).encode()
     ),

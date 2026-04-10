@@ -13,6 +13,7 @@ from group_data.all import (
     NETWORK,
     NTFY,
     PIHOLE,
+    SYNCTHING,
     TRAEFIK,
     VAULTWARDEN,
     WGPORTAL,
@@ -193,6 +194,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    syncthing:
+      rule: "Host(`syncthing.{DOMAIN}`)"
+      service: syncthing
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -245,6 +253,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
+
+    syncthing:
+      loadBalancer:
+        servers:
+          - url: "http://{SYNCTHING["host"]}:{SYNCTHING["port"]}"
 """
 
 files.put(

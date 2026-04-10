@@ -14,9 +14,11 @@ Item structure in the 'raspi' folder:
   vaultwarden       login  password=admin_password (plain text, for logging in)
                            fields: admin_token (hidden, argon2 hash; generate with:
                              docker run --rm -it vaultwarden/server /vaultwarden hash --preset owasp)
+                                   smtp_email   (Gmail address used for SMTP_USERNAME and SMTP_FROM)
                                    smtp_password (hidden, Gmail app password)
   yarr              login  username/password   (use alphanumeric-only password — no colons)
   navidrome         login  username/password   fields: cifs_username, cifs_password (hidden)
+  syncthing         login  username/password   (web UI credentials)
 """
 
 import functools
@@ -135,6 +137,10 @@ def vaultwarden_admin_token_hash() -> str:
     return _fields("vaultwarden")["admin_token"]
 
 
+def vaultwarden_smtp_email() -> str:
+    return _fields("vaultwarden")["smtp_email"]
+
+
 def vaultwarden_smtp_password() -> str:
     return _fields("vaultwarden")["smtp_password"]
 
@@ -157,6 +163,11 @@ def navidrome_cifs_creds() -> str:
 
 def yarr_creds() -> dict:
     login = _get_item("yarr")["login"]
+    return {"username": login["username"], "password": login["password"]}
+
+
+def syncthing_creds() -> dict:
+    login = _get_item("syncthing")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 

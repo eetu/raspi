@@ -93,6 +93,7 @@ Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the
 | 4533 | Navidrome |
 | 5335 | Unbound (DNS) |
 | 7070 | Yarr |
+| 8384 | Syncthing web UI |
 | 8080 | Pi-hole web UI |
 | 8085 | Vaultwarden |
 | 8088 | Pi-hole DNS |
