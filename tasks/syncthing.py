@@ -9,6 +9,7 @@ import vault as bw
 from group_data.all import SYNCTHING
 
 VERSION = SYNCTHING["version"]
+USER = SYNCTHING.get("user", "root")
 BINARY_URL = (
     f"https://github.com/syncthing/syncthing/releases/download/{VERSION}/"
     f"syncthing-linux-arm64-{VERSION}.tar.gz"
@@ -38,8 +39,8 @@ server.shell(
 files.directory(
     name="Create /var/lib/syncthing",
     path="/var/lib/syncthing",
-    user="root",
-    group="root",
+    user=USER,
+    group=USER,
     mode="700",
     present=True,
 )
@@ -51,7 +52,7 @@ server.shell(
     commands=[
         f"""
         if [ ! -f /var/lib/syncthing/config.xml ]; then
-          syncthing generate \
+          runuser -u {USER} -- syncthing generate \
             --config=/var/lib/syncthing \
             --data=/var/lib/syncthing \
             --gui-user={_creds["username"]!r} \
@@ -92,7 +93,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=HOME=/root
+User={USER}
+Environment=HOME=/{"root" if USER == "root" else f"home/{USER}"}
 ExecStart=/usr/local/bin/syncthing serve \
   --no-browser --no-restart \
   --config=/var/lib/syncthing \

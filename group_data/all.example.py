@@ -129,6 +129,7 @@ SYNCTHING = {
     "version": "v2.0.16",
     "host": "127.0.0.1",
     "port": 8384,
+    "user": "root",
 }
 
 NAVIDROME = {

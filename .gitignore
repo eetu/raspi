@@ -17,3 +17,6 @@ wheels/
 PLAN.md
 
 *.log
+
+.stfolder/
+.stignore
