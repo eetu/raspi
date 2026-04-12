@@ -41,11 +41,6 @@ Environment=ND_SESSIONTIMEOUT=168h
 Environment=ND_ENABLEINSIGHTSCOLLECTOR=false
 AutoUpdate=registry
 Pull=newer
-HealthCmd=CMD-SHELL nc -z 127.0.0.1 {NAVIDROME["port"]}
-HealthInterval=30s
-HealthTimeout=5s
-HealthRetries=3
-HealthStartPeriod=60s
 
 [Service]
 Restart=always

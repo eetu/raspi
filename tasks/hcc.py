@@ -25,11 +25,6 @@ Environment=HOSTNAME={HCC["host"]}
 EnvironmentFile=/etc/secrets/hcc.env
 AutoUpdate=registry
 Pull=newer
-HealthCmd=CMD-SHELL nc -z 127.0.0.1 {HCC["port"]}
-HealthInterval=30s
-HealthTimeout=5s
-HealthRetries=3
-HealthStartPeriod=30s
 
 [Service]
 Restart=always

@@ -28,11 +28,6 @@ Volume=/etc/ntfy/server.yml:/etc/ntfy/server.yml:ro
 Volume=/run/ntfy:/var/lib/ntfy
 Exec=serve
 AutoUpdate=registry
-HealthCmd=CMD-SHELL nc -z 127.0.0.1 {NTFY["port"]}
-HealthInterval=30s
-HealthTimeout=5s
-HealthRetries=3
-HealthStartPeriod=15s
 
 [Service]
 Restart=always

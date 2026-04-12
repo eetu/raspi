@@ -142,11 +142,6 @@ Network=host
 Volume=/etc/gatus/config.yaml:/config/config.yaml:ro
 Volume=/var/lib/gatus:/data
 AddCapability=CAP_NET_RAW
-HealthCmd=CMD-SHELL nc -z 127.0.0.1 {GATUS["port"]}
-HealthInterval=30s
-HealthTimeout=5s
-HealthRetries=3
-HealthStartPeriod=30s
 
 [Service]
 Restart=always
