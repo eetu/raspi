@@ -2,6 +2,7 @@ from pyinfra import local
 
 local.include("tasks/bootstrap.py")
 local.include("tasks/hardening.py")
+local.include("tasks/network_restrict.py")
 local.include("tasks/secrets_files.py")
 local.include("tasks/cloudflare_dns.py")
 local.include("tasks/unbound.py")
@@ -21,3 +22,5 @@ local.include("tasks/ddns.py")
 local.include("tasks/vaultwarden.py")
 local.include("tasks/yarr.py")
 local.include("tasks/syncthing.py")
+local.include("tasks/vuio.py")
+local.include("tasks/network_monitor.py")

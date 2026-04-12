@@ -4,7 +4,8 @@ Bitwarden CLI helpers. Requires BW_SESSION env var to be set:
 
 Item structure in the 'raspi' folder:
   cloudflare        login  password=api_token  fields: zone_id
-  audiobookshelf    login  username/password   fields: cifs_username, cifs_password, api_key (hidden)
+  cifs              login  (unused)            fields: {share}_username, {share}_password (hidden) per CIFS key
+  audiobookshelf    login  username/password   fields: api_key (hidden)
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
   asus-router              SSH key item        (uses Bitwarden SSH key type)
@@ -17,7 +18,7 @@ Item structure in the 'raspi' folder:
                                    smtp_email   (Gmail address used for SMTP_USERNAME and SMTP_FROM)
                                    smtp_password (hidden, Gmail app password)
   yarr              login  username/password   (use alphanumeric-only password — no colons)
-  navidrome         login  username/password   fields: cifs_username, cifs_password (hidden)
+  navidrome         login  username/password
   syncthing         login  username/password   (web UI credentials)
 """
 
@@ -70,9 +71,9 @@ def pihole_password() -> str:
     return _get_item("pihole")["login"]["password"]
 
 
-def cifs_creds() -> str:
-    f = _fields("audiobookshelf")
-    return f"username={f['cifs_username']}\npassword={f['cifs_password']}\n"
+def cifs_creds(share_name: str) -> str:
+    f = _fields("cifs")
+    return f"username={f[f'{share_name}_username']}\npassword={f[f'{share_name}_password']}\n"
 
 
 def abs_creds() -> dict:
@@ -154,11 +155,6 @@ def asus_router_ssh() -> dict:
 def navidrome_creds() -> dict:
     login = _get_item("navidrome")["login"]
     return {"username": login["username"], "password": login["password"]}
-
-
-def navidrome_cifs_creds() -> str:
-    f = _fields("navidrome")
-    return f"username={f['cifs_username']}\npassword={f['cifs_password']}\n"
 
 
 def yarr_creds() -> dict:

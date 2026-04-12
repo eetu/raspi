@@ -35,13 +35,13 @@ A save hook runs `ruff format` automatically, which removes unused imports. When
 
 ## Service patterns
 
-### Native binary (Traefik, wg-portal, Yarr)
+### Native binary (Traefik, wg-portal, Yarr, VuIO, Syncthing)
 Use when: single static binary, no container needed.
 
 1. Download binary from GitHub releases, version-stamped to `/usr/local/bin/.{service}-version`
 2. Create data dir under `/var/lib/{service}/`
 3. Write secrets to `/etc/secrets/{service}.env` (mode 600)
-4. Write systemd unit to `/etc/systemd/system/{service}.service`
+4. Write systemd unit to `/etc/systemd/system/{service}.service` with sandboxing (see below)
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
@@ -66,14 +66,32 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `group_data/all.example.py` — mirror the same dict with placeholder values
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
-- [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all`
-- [ ] `tasks/cloudflare_dns.py` — add subdomain to the list in `configure_dns()`
+- [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
+- [ ] `tasks/cloudflare_dns.py` — add subdomain to the list in `configure_dns()` (if web-accessible)
+- [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
 - [ ] Bitwarden — create item in `raspi` folder before deploying
 
 ## Secrets (Bitwarden)
 
 Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the full item list and field structure. The `BW_SESSION` env var must be set before deploy — pyinfra fetches secrets locally at deploy time and writes them to `/etc/secrets/` on the Pi (never committed to git).
+
+CIFS (NAS) credentials are consolidated in a single `cifs` Bitwarden item with per-share fields (`{share}_username`, `{share}_password`). The CIFS dict keys in `all.py` drive which fields are expected — adding a new CIFS mount automatically creates its credential file.
+
+## Security hardening
+
+### Filesystem sandboxing (native binaries)
+All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
+
+### Network egress restrictions
+LAN-only services (audiobookshelf, navidrome, ntfy, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, and SSDP multicast. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP.
+
+### Network breach monitoring
+A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
+
+### Adding network restrictions to a new service
+1. Add the service name to the `RESTRICTED` list in `tasks/network_restrict.py`
+2. If the service needs specific non-LAN destinations (e.g., SSDP multicast), add an accept rule before the drop rules
 
 ## Traefik
 
@@ -98,6 +116,7 @@ Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the
 | 8085 | Vaultwarden |
 | 8088 | Pi-hole DNS |
 | 8090 | ntfy |
+| 8096 | VuIO (DLNA) |
 | 8888 | wg-portal |
 | 13378 | Audiobookshelf |
 | 51820 | WireGuard (UDP) |

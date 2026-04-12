@@ -99,6 +99,8 @@ _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 443tcp "
     f"from {WIREGUARD['subnet']} 443tcp "
     f"{WIREGUARD['port']}udp "
+    f"from {NETWORK['lan_cidr']} 1900udp "
+    f"from {NETWORK['lan_cidr']} 8096tcp "
     f"route wg0"
 )
 
@@ -122,6 +124,8 @@ server.shell(
         ufw allow from {NETWORK["lan_cidr"]} to any port 443 proto tcp comment 'HTTPS LAN'
         ufw allow from {WIREGUARD["subnet"]} to any port 443 proto tcp comment 'HTTPS WG'
         ufw allow {WIREGUARD["port"]}/udp comment 'WireGuard'
+        ufw allow from {NETWORK["lan_cidr"]} to any port 1900 proto udp comment 'SSDP DLNA'
+        ufw allow from {NETWORK["lan_cidr"]} to any port 8096 proto tcp comment 'VuIO DLNA'
         ufw route allow in on wg0 comment 'WireGuard forwarding'
         ufw --force enable
         echo "$WANT" > "$STAMP"

@@ -71,6 +71,16 @@ Restart=always
 RestartSec=5
 NoNewPrivileges=true
 MemoryMax=64M
+ProtectSystem=strict
+ReadWritePaths=/var/lib/yarr
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
