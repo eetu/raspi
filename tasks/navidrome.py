@@ -39,6 +39,7 @@ Environment=ND_LOGLEVEL=warn
 Environment=ND_SCANNER_SCHEDULE=@hourly
 Environment=ND_SESSIONTIMEOUT=168h
 Environment=ND_ENABLEINSIGHTSCOLLECTOR=false
+Environment=ND_ENABLEEXTERNALSERVICES=false
 AutoUpdate=registry
 Pull=newer
 
