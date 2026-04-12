@@ -39,6 +39,49 @@ files.directory(
     present=True,
 )
 
+# --- Config ---
+
+config_toml = f"""\
+[server]
+port = {VUIO["port"]}
+interface = "0.0.0.0"
+name = "Raspi"
+uuid = "c12603c5-840b-4987-849d-8a5e75d60192"
+ip = ""
+
+[network]
+interface_selection = "Auto"
+multicast_ttl = 4
+announce_interval_seconds = 30
+
+[media]
+scan_on_startup = true
+watch_for_changes = true
+cleanup_deleted_files = true
+autoplay_enabled = true
+supported_extensions = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ogv", "mp3", "flac", "wav", "aac", "ogg", "wma", "m4a", "opus", "ape", "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg", "mka", "mks"]
+
+[[media.directories]]
+path = "{VUIO["movies_path"]}"
+recursive = true
+exclude_patterns = [".*", "*.tmp", "*.temp", "lost+found", ".Trash-*"]
+validation_mode = "Warn"
+
+[database]
+path = "/var/lib/vuio/media.db"
+vacuum_on_startup = false
+backup_enabled = false
+"""
+
+files.put(
+    name="Write vuio config",
+    src=io.BytesIO(config_toml.encode()),
+    dest="/var/lib/vuio/config.toml",
+    user="root",
+    group="root",
+    mode="644",
+)
+
 # --- systemd service ---
 
 service_unit = f"""\
@@ -49,7 +92,7 @@ Wants=network-online.target mnt-movies.automount
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/vuio -p {VUIO["port"]} -n "Raspi" {VUIO["movies_path"]}
+ExecStart=/usr/local/bin/vuio -c /var/lib/vuio/config.toml
 WorkingDirectory=/var/lib/vuio
 Restart=always
 RestartSec=5
@@ -80,7 +123,7 @@ files.put(
     mode="644",
 )
 
-_unit_hash = hashlib.sha256(service_unit.encode()).hexdigest()
+_unit_hash = hashlib.sha256((service_unit + config_toml).encode()).hexdigest()
 
 systemd.service(
     name="Enable vuio",
