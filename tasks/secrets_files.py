@@ -5,6 +5,7 @@ import io
 from pyinfra.operations import files
 
 import vault as bw
+from group_data.all import CIFS
 
 
 def _put_secret(name, content, dest, mode="600", group="root"):
@@ -19,8 +20,9 @@ def _put_secret(name, content, dest, mode="600", group="root"):
 
 
 _put_secret("hcc.env", bw.hcc_env(), "/etc/secrets/hcc.env")
-_put_secret("cifs-audiobooks", bw.cifs_creds(), "/etc/secrets/cifs-audiobooks")
-_put_secret("cifs-music", bw.navidrome_cifs_creds(), "/etc/secrets/cifs-music")
+
+for _name in CIFS:
+    _put_secret(f"cifs-{_name}", bw.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
 
 cf = bw.cloudflare()
 _put_secret(

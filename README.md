@@ -18,8 +18,10 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Gatus](https://github.com/TwiN/gatus) | Service monitoring and status page |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
+| [Syncthing](https://syncthing.net) | Peer-to-peer file synchronization |
+| [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
 
-HCC, Audiobookshelf, Navidrome, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Trivy, Unbound, Yarr and other services run as native binaries.
+HCC, Audiobookshelf, Navidrome, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
 
 ## Prerequisites
 
@@ -37,9 +39,11 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 |---|---|
 | `hcc` | HCC environment variables (API keys, Hue bridge, room config) |
 | `pihole` | Pi-hole admin password |
-| `audiobookshelf` | ABS admin credentials (`login`), NAS share credentials (`cifs_username`, `cifs_password` fields), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
-| `navidrome` | Navidrome admin credentials (`login`), music NAS share credentials (`cifs_username`, `cifs_password` hidden fields) |
+| `cifs` | NAS share credentials — per-share fields: `{share}_username`, `{share}_password` (hidden), keyed by CIFS dict entries in `all.py` |
+| `audiobookshelf` | ABS admin credentials (`login`), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
+| `navidrome` | Navidrome admin credentials (`login`) |
 | `yarr` | Yarr login credentials (`login`) |
+| `syncthing` | Syncthing web UI credentials (`login`) |
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
 | `cloudflare` | Cloudflare API token + zone ID |
@@ -97,6 +101,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `ntfy.yourdomain.com` | Push notification server |
 | `status.yourdomain.com` | Gatus status page |
 | `vault.yourdomain.com` | Vaultwarden password vault |
+| `syncthing.yourdomain.com` | Syncthing file sync UI |
 
 ## ntfy mobile app setup
 
@@ -221,6 +226,43 @@ If your router's IPv6 firewall pins the WireGuard rule to a specific host addres
        "router_ssh_port": 22,
    }
    ```
+
+## Security hardening
+
+### Filesystem sandboxing
+
+All native binary services run in hardened systemd units with:
+
+- **`ProtectSystem=strict`** — root filesystem is read-only; only the service's own data directory is writable via `ReadWritePaths`
+- **`ProtectHome=yes`** — `/home`, `/root`, `/run/user` are invisible (except Syncthing, which needs its sync paths)
+- **`PrivateTmp=yes`** — isolated `/tmp` per service
+- **`CapabilityBoundingSet=`** — all Linux capabilities dropped (except where required, e.g. `CAP_NET_BIND_SERVICE` for Traefik)
+- **`ProtectKernelTunables/Modules/ControlGroups`**, **`RestrictNamespaces`**, **`LockPersonality`** — prevent kernel and namespace manipulation
+
+A compromised binary can only write to its own data directory — it cannot read `/etc/secrets/`, other services' data, or modify system files.
+
+Podman container services get filesystem isolation from the container runtime itself (only explicitly mounted volumes are accessible).
+
+### Network egress restrictions
+
+LAN-only services are blocked from reaching the internet via **nftables cgroup-based filtering** (`tasks/network_restrict.py`). This mitigates supply chain attacks where a compromised binary or container image tries to phone home.
+
+**Restricted services:** Audiobookshelf, Navidrome, ntfy, wg-portal, VuIO
+
+**Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
+
+**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Syncthing (peer sync), Gatus (uptime checks), Vaultwarden (SMTP), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
+
+Blocked connection attempts are logged to the kernel journal with `BREACH:<service>:` prefix, including the destination IP.
+
+### Network breach monitoring
+
+A timer runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy notification with the service name, packet count, and destination IP. This alerts you when:
+
+- A service update introduces unexpected outbound connections
+- A network restriction is too aggressive and breaks functionality
+
+VuIO is a LAN-only DLNA service and does not have a Traefik router or Cloudflare DNS entry — it is only accessible via UPnP/DLNA discovery on the local network.
 
 ## Security and update monitoring
 

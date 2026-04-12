@@ -104,6 +104,16 @@ Restart=always
 RestartSec=5
 NoNewPrivileges=true
 MemoryMax=256M
+ProtectSystem=strict
+ReadWritePaths=/var/lib/syncthing /home/{USER}
+ProtectHome=no
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

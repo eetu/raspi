@@ -90,6 +90,12 @@ CIFS = {
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
+    "movies": {
+        "share": "//nasname/movies",
+        "mountpoint": "/mnt/movies",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+    },
 }
 
 NTFY = {
@@ -137,4 +143,11 @@ NAVIDROME = {
     "port": 4533,
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
+}
+
+VUIO = {
+    "host": "0.0.0.0",  # LAN-wide for DLNA/SSDP discovery
+    "port": 8096,
+    "version": "v0.0.22",
+    "movies_path": "/mnt/movies",
 }
