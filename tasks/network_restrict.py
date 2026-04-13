@@ -22,6 +22,7 @@ RESTRICTED = [
     "audiobookshelf",
     "navidrome",
     "ntfy",
+    "syncthing",
     "wg-portal",
     "vuio",
 ]

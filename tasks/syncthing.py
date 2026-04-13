@@ -62,10 +62,10 @@ server.shell(
     ],
 )
 
-# --- Reverse proxy: disable host check via API (required when behind Traefik) ---
+# --- Reverse proxy + LAN-only config via API ---
 
 server.shell(
-    name="Enable Syncthing insecureSkipHostcheck",
+    name="Configure Syncthing: reverse proxy + LAN-only",
     commands=[
         """
         API_KEY=$(grep -oP '(?<=<apikey>)[^<]+' /var/lib/syncthing/config.xml 2>/dev/null || true)
@@ -76,7 +76,7 @@ server.shell(
             http://127.0.0.1:8384/rest/config/gui > /dev/null || true
           curl -sf -X PATCH -H "X-API-Key: $API_KEY" \
             -H 'Content-Type: application/json' \
-            -d '{"urAccepted": -1}' \
+            -d '{"urAccepted": -1, "globalAnnounceEnabled": false, "relaysEnabled": false, "natEnabled": false}' \
             http://127.0.0.1:8384/rest/config/options > /dev/null || true
         fi
         """,
