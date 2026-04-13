@@ -40,6 +40,10 @@ Environment=ND_SCANNER_SCHEDULE=@hourly
 Environment=ND_SESSIONTIMEOUT=168h
 Environment=ND_ENABLEINSIGHTSCOLLECTOR=false
 Environment=ND_ENABLEEXTERNALSERVICES=false
+Environment=ND_LASTFM_ENABLED=false
+Environment=ND_LISTENBRAINZ_ENABLED=false
+Environment=ND_UPDATECHECK=false
+Environment=ND_COVERARTPRIORITY=embedded,cover.*,folder.*,front.*
 AutoUpdate=registry
 Pull=newer
 
