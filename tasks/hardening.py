@@ -1,5 +1,8 @@
 import hashlib
+import io
 
+from pyinfra import host
+from pyinfra.facts.server import Command
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import NETWORK, WIREGUARD
@@ -194,10 +197,24 @@ server.shell(
 )
 
 # zram: compressed swap in RAM — replaces SD swapfile, provides OOM safety net
-# 25% of 1 GB = 256 MB zram device → ~512 MB effective swap at lz4 2:1 compression
+# Strategy chosen based on physical RAM:
+#   <2 GB  (1g):  ram/4, lz4  — conservative, OOM safety net only
+#   <6 GB  (4g):  ram/2, lz4  — standard
+#   <12 GB (8g):  ram/2, zstd — better compression ratio
+#   ≥12 GB (16g): ram/2, zstd — generous
+_ram_mb = int(host.get_fact(Command, command="awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo"))
+if _ram_mb < 2048:
+    _zram_size, _zram_algo = "ram / 4", "lz4"
+elif _ram_mb < 6144:
+    _zram_size, _zram_algo = "ram / 2", "lz4"
+elif _ram_mb < 12288:
+    _zram_size, _zram_algo = "ram / 2", "zstd"
+else:
+    _zram_size, _zram_algo = "ram / 2", "zstd"
+
 files.put(
     name="Configure zram-generator",
-    src="files/zram-generator.conf",
+    src=io.StringIO(f"[zram0]\nzram-size = {_zram_size}\ncompression-algorithm = {_zram_algo}\n"),
     dest="/etc/systemd/zram-generator.conf",
     user="root",
     group="root",
