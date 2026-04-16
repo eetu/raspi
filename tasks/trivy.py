@@ -39,24 +39,66 @@ cve_scan = f"""\
 set -euo pipefail
 
 NTFY_URL="{NTFY_URL}"
+CACHE_DIR=/var/lib/trivy/cache
 export XDG_RUNTIME_DIR=/run
+export DOCKER_HOST=unix:///run/podman/podman.sock
 
-/usr/local/bin/trivy image --download-db-only --quiet 2>/dev/null
+/usr/local/bin/trivy image \\
+    --cache-dir "$CACHE_DIR" \\
+    --download-db-only \\
+    --quiet
 
 for image in $(podman ps --format "{{{{.Image}}}}" | sort -u); do
-    if ! /usr/local/bin/trivy image \\
+    json=$(/usr/local/bin/trivy image \\
+            --cache-dir "$CACHE_DIR" \\
             --severity HIGH,CRITICAL \\
-            --exit-code 1 \\
             --no-progress \\
             --quiet \\
-            "$image" > /dev/null 2>&1; then
-        curl -sf \\
-            -H "Title: CVE Alert" \\
-            -H "Priority: high" \\
-            -H "Tags: warning" \\
-            -d "HIGH/CRITICAL CVEs in ${{image}} — SSH to Pi: trivy image ${{image}}" \\
-            "$NTFY_URL" > /dev/null || true
-    fi
+            --format json \\
+            "$image" 2>/dev/null) || true
+
+    output=$(echo "$json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+crits, highs = [], []
+for r in data.get("Results", []):
+    for v in (r.get("Vulnerabilities") or []):
+        name = "{{}} {{}}".format(v["PkgName"], v.get("InstalledVersion", ""))
+        title = v.get("Title", "")[:55]
+        cve = v["VulnerabilityID"]
+        line = "• {{}} — {{}} ({{}})".format(name, title, cve)
+        if v["Severity"] == "CRITICAL":
+            crits.append(line)
+        else:
+            highs.append(line)
+if not crits and not highs:
+    sys.exit(0)
+priority = "urgent" if crits else "high"
+parts = ["{{}} CRITICAL • {{}} HIGH".format(len(crits), len(highs))]
+if crits:
+    parts.append("CRITICAL:\\n" + "\\n".join(crits))
+if highs:
+    shown = highs[:3]
+    label = "HIGH ({{}} of {{}}):\\n".format(len(shown), len(highs)) if len(highs) > 3 else "HIGH:\\n"
+    parts.append(label + "\\n".join(shown))
+print(priority)
+print("\\n\\n".join(parts))
+' 2>/dev/null) || true
+
+    [ -z "$output" ] && continue
+
+    priority=$(printf '%s' "$output" | head -1)
+    msg=$(printf '%s' "$output" | tail -n +2)
+    short="${{image##*/}}"
+    tags=warning
+    [ "$priority" = urgent ] && tags=rotating_light
+
+    curl -sf \\
+        -H "Title: CVE: ${{short}}" \\
+        -H "Priority: $priority" \\
+        -H "Tags: $tags" \\
+        -d "$msg" \\
+        "$NTFY_URL" > /dev/null || true
 done
 """
 
@@ -103,6 +145,7 @@ Description=Trivy CVE scan
 
 [Service]
 Type=oneshot
+Environment=TMPDIR=/var/lib/trivy/tmp
 ExecStart=/usr/local/bin/trivy-cve-scan.sh
 """
 
@@ -140,6 +183,16 @@ RandomizedDelaySec=1800
 [Install]
 WantedBy=timers.target
 """
+
+for _dir in ("/var/lib/trivy/tmp", "/var/lib/trivy/cache"):
+    files.directory(
+        name=f"Create {_dir}",
+        path=_dir,
+        user="root",
+        group="root",
+        mode="700",
+        present=True,
+    )
 
 for dest, content, mode in [
     ("/usr/local/bin/trivy-cve-scan.sh", cve_scan, "755"),

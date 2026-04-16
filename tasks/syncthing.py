@@ -62,23 +62,33 @@ server.shell(
     ],
 )
 
-# --- Reverse proxy + LAN-only config via API ---
+# --- Reverse proxy + LAN-only config via direct XML patch ---
+# Patches config.xml before the daemon starts so settings are guaranteed on first run.
+# Restarts the daemon if it is already running so the new config takes effect.
 
 server.shell(
     name="Configure Syncthing: reverse proxy + LAN-only",
     commands=[
-        """
-        API_KEY=$(grep -oP '(?<=<apikey>)[^<]+' /var/lib/syncthing/config.xml 2>/dev/null || true)
-        if [ -n "$API_KEY" ]; then
-          curl -sf -X PATCH -H "X-API-Key: $API_KEY" \
-            -H 'Content-Type: application/json' \
-            -d '{"insecureSkipHostcheck": true}' \
-            http://127.0.0.1:8384/rest/config/gui > /dev/null || true
-          curl -sf -X PATCH -H "X-API-Key: $API_KEY" \
-            -H 'Content-Type: application/json' \
-            -d '{"urAccepted": -1, "globalAnnounceEnabled": false, "relaysEnabled": false, "natEnabled": false}' \
-            http://127.0.0.1:8384/rest/config/options > /dev/null || true
-        fi
+        f"""
+        python3 -c '
+import xml.etree.ElementTree as ET
+p = "/var/lib/syncthing/config.xml"
+tree = ET.parse(p)
+root = tree.getroot()
+opts = root.find("options")
+for key, val in [("globalAnnounceEnabled","false"),("relaysEnabled","false"),
+                 ("natEnabled","false"),("urAccepted","-1")]:
+    el = opts.find(key)
+    if el is None: el = ET.SubElement(opts, key)
+    el.text = val
+gui = root.find("gui")
+el = gui.find("insecureSkipHostcheck")
+if el is None: el = ET.SubElement(gui, "insecureSkipHostcheck")
+el.text = "true"
+tree.write(p, encoding="utf-8", xml_declaration=True)
+'
+        chown {USER}:{USER} /var/lib/syncthing/config.xml
+        systemctl is-active --quiet syncthing && systemctl reload-or-restart syncthing || true
         """,
     ],
 )
