@@ -6,6 +6,7 @@ import io
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import VUIO
+from tasks.util import restart_if_changed
 
 VERSION = VUIO["version"]
 BINARY_URL = f"https://github.com/vuiodev/vuio/releases/download/{VERSION}/vuio-linux-arm64.tar.gz"
@@ -135,13 +136,5 @@ systemd.service(
 
 server.shell(
     name="Restart vuio if unit changed",
-    commands=[
-        f"""
-        STAMP=/etc/systemd/system/.vuio-unit-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_unit_hash}" ]; then
-          systemctl restart vuio
-          echo '{_unit_hash}' > "$STAMP"
-        fi
-        """,
-    ],
+    commands=[restart_if_changed("vuio", _unit_hash)],
 )

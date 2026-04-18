@@ -7,6 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import SYNCTHING
+from tasks.util import restart_if_changed
 
 VERSION = SYNCTHING["version"]
 USER = SYNCTHING.get("user", "root")
@@ -150,13 +151,5 @@ systemd.service(
 
 server.shell(
     name="Restart syncthing if unit changed",
-    commands=[
-        f"""
-        STAMP=/etc/systemd/system/.syncthing-unit-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_unit_hash}" ]; then
-          systemctl restart syncthing
-          echo '{_unit_hash}' > "$STAMP"
-        fi
-        """,
-    ],
+    commands=[restart_if_changed("syncthing", _unit_hash)],
 )

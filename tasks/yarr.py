@@ -7,6 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import YARR
+from tasks.util import restart_if_changed
 
 VERSION = YARR["version"]
 BINARY_URL = f"https://github.com/nkanaev/yarr/releases/download/{VERSION}/yarr_linux_arm64.zip"
@@ -107,18 +108,5 @@ systemd.service(
 
 server.shell(
     name="Restart yarr if unit or env changed",
-    commands=[
-        f"""
-        USTAMP=/etc/systemd/system/.yarr-unit-stamp
-        ESTAMP=/etc/secrets/.yarr-env-stamp
-        ENV_HASH=$(sha256sum /etc/secrets/yarr.env | cut -d' ' -f1)
-
-        if [ "$(cat "$USTAMP" 2>/dev/null)" != "{_unit_hash}" ] || \
-           [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
-          systemctl restart yarr
-          echo '{_unit_hash}' > "$USTAMP"
-          echo "$ENV_HASH" > "$ESTAMP"
-        fi
-        """,
-    ],
+    commands=[restart_if_changed("yarr", _unit_hash, env_files=("/etc/secrets/yarr.env",))],
 )
