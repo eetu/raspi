@@ -83,7 +83,7 @@ endpoints:
       - type: ntfy
 
   - name: Yarr
-    url: "https://yarr.{DOMAIN}"
+    url: "https://rss.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
