@@ -78,6 +78,19 @@ Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the
 
 CIFS (NAS) credentials are consolidated in a single `cifs` Bitwarden item with per-share fields (`{share}_username`, `{share}_password`). The CIFS dict keys in `all.py` drive which fields are expected — adding a new CIFS mount automatically creates its credential file.
 
+### Rotating a secret
+
+`tasks/secrets_files.py` is the sole owner of writing all `/etc/secrets/*` files. Service tasks detect secret changes by hashing the on-disk file after it has been written — they never read from Bitwarden directly. To rotate a secret and restart the affected service in one shot:
+
+```fish
+uv run pyinfra inventory.py tasks/secrets_files.py tasks/<service>.py
+```
+
+Examples:
+- `tasks/secrets_files.py tasks/hcc.py` — rotate HCC credentials
+- `tasks/secrets_files.py tasks/traefik.py` — rotate Cloudflare API token
+- `tasks/secrets_files.py tasks/cifs.py` — rotate NAS credentials (remounts shares)
+
 ## Security hardening
 
 ### Filesystem sandboxing (native binaries)

@@ -5,10 +5,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
 from group_data.all import HCC
-
-_env_hash = hashlib.sha256(bw.hcc_env().encode()).hexdigest()
 
 quadlet = f"""\
 [Unit]
@@ -87,11 +84,12 @@ server.shell(
 server.shell(
     name="Restart HCC if env changed",
     commands=[
-        f"""
-        STAMP=/etc/secrets/.hcc-env-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_env_hash}" ]; then
+        """
+        ESTAMP=/etc/secrets/.hcc-env-stamp
+        ENV_HASH=$(sha256sum /etc/secrets/hcc.env | cut -d' ' -f1)
+        if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
           systemctl restart hcc
-          echo '{_env_hash}' > "$STAMP"
+          echo "$ENV_HASH" > "$ESTAMP"
         fi
         """,
     ],

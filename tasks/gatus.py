@@ -74,6 +74,30 @@ endpoints:
     alerts:
       - type: ntfy
 
+  - name: Navidrome
+    url: "https://music.{DOMAIN}"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+
+  - name: Yarr
+    url: "https://yarr.{DOMAIN}"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+
+  - name: Syncthing
+    url: "https://syncthing.{DOMAIN}"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+
   - name: Unbound DNS
     url: "127.0.0.1:{UNBOUND["port"]}"
     interval: 2m

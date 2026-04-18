@@ -139,13 +139,19 @@ systemd.service(
 
 
 server.shell(
-    name="Restart wg-portal if config changed",
+    name="Restart wg-portal if config or credentials changed",
     commands=[
         f"""
         STAMP=/etc/wg-portal/.pyinfra-stamp
         if [ "$(cat "$STAMP" 2>/dev/null)" != "{_config_hash}" ]; then
           systemctl restart wg-portal
           echo '{_config_hash}' > "$STAMP"
+        fi
+        ESTAMP=/etc/secrets/.wg-portal-env-stamp
+        ENV_HASH=$(sha256sum /etc/secrets/wg-portal.env | cut -d' ' -f1)
+        if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
+          systemctl restart wg-portal
+          echo "$ENV_HASH" > "$ESTAMP"
         fi
         """,
     ],
