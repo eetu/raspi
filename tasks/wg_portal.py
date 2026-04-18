@@ -7,6 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import NETWORK, WGPORTAL, WIREGUARD
+from tasks.util import restart_if_changed
 
 VERSION = WGPORTAL["version"]
 BINARY_URL = f"https://github.com/h44z/wg-portal/releases/download/{VERSION}/wg-portal_linux_arm64"
@@ -141,19 +142,7 @@ systemd.service(
 server.shell(
     name="Restart wg-portal if config or credentials changed",
     commands=[
-        f"""
-        STAMP=/etc/wg-portal/.pyinfra-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_config_hash}" ]; then
-          systemctl restart wg-portal
-          echo '{_config_hash}' > "$STAMP"
-        fi
-        ESTAMP=/etc/secrets/.wg-portal-env-stamp
-        ENV_HASH=$(sha256sum /etc/secrets/wg-portal.env | cut -d' ' -f1)
-        if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
-          systemctl restart wg-portal
-          echo "$ENV_HASH" > "$ESTAMP"
-        fi
-        """,
+        restart_if_changed("wg-portal", _config_hash, env_files=("/etc/secrets/wg-portal.env",))
     ],
 )
 

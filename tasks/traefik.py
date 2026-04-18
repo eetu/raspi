@@ -19,6 +19,7 @@ from group_data.all import (
     WGPORTAL,
     YARR,
 )
+from tasks.util import restart_if_changed
 
 VERSION = TRAEFIK["version"]
 BINARY_URL = (
@@ -322,14 +323,8 @@ systemd.service(
 )
 
 server.shell(
-    name="Restart Traefik if config changed",
+    name="Restart Traefik if config or env changed",
     commands=[
-        f"""
-        STAMP=/etc/traefik/.pyinfra-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_static_hash}" ]; then
-          systemctl restart traefik
-          echo '{_static_hash}' > "$STAMP"
-        fi
-        """,
+        restart_if_changed("traefik", _static_hash, env_files=("/etc/secrets/cloudflare.env",))
     ],
 )

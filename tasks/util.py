@@ -3,6 +3,42 @@
 import json
 import re
 import urllib.request
+from collections.abc import Iterable
+
+
+def restart_if_changed(
+    service: str,
+    static_hash: str,
+    env_files: Iterable[str] = (),
+) -> str:
+    """Shell command that restarts `service` when its config fingerprint changes.
+
+    `static_hash` covers content known at plan time (unit + inline config strings).
+    `env_files` are paths hashed at run time — useful for secrets written by
+    tasks/secrets_files.py that rotate out-of-band. The combined stamp lives at
+    `/etc/systemd/system/.{service}-stamp`.
+    """
+    stamp = f"/etc/systemd/system/.{service}-stamp"
+    env_files = tuple(env_files)
+    if not env_files:
+        return (
+            f'if [ "$(cat {stamp} 2>/dev/null)" != "{static_hash}" ]; then\n'
+            f"  systemctl restart {service}\n"
+            f"  echo '{static_hash}' > {stamp}\n"
+            f"fi"
+        )
+    files_arg = " ".join(env_files)
+    return (
+        f'CURRENT="{static_hash}"\n'
+        f"for f in {files_arg}; do\n"
+        f'  CURRENT="$CURRENT:$(sha256sum "$f" | cut -d\' \' -f1)"\n'
+        f"done\n"
+        f'CURRENT=$(printf "%s" "$CURRENT" | sha256sum | cut -d\' \' -f1)\n'
+        f'if [ "$(cat {stamp} 2>/dev/null)" != "$CURRENT" ]; then\n'
+        f"  systemctl restart {service}\n"
+        f'  echo "$CURRENT" > {stamp}\n'
+        f"fi"
+    )
 
 
 def resolve_latest(repo: str, image: str) -> str:

@@ -18,7 +18,8 @@ WG_SUBNET = WIREGUARD["subnet"]
 
 # Services restricted to LAN-only access, mapped to their systemd unit names.
 # VuIO additionally needs SSDP multicast (239.255.255.250).
-# Syncthing additionally needs IPv6 local discovery multicast (ff12::8384 udp/21027).
+# Syncthing additionally needs local discovery on udp/21027:
+#   IPv4 limited broadcast (255.255.255.255) and IPv6 multicast (ff12::8384).
 RESTRICTED = [
     "audiobookshelf",
     "navidrome",
@@ -46,7 +47,8 @@ table inet service_restrict {{
         # Allow SSDP multicast (DLNA discovery)
         ip daddr 239.255.255.250 accept
 
-        # Allow Syncthing IPv6 local discovery multicast (link-local, never leaves LAN)
+        # Allow Syncthing local discovery (link-local, never leaves LAN)
+        ip daddr 255.255.255.255 udp dport 21027 accept
         ip6 daddr ff12::8384 udp dport 21027 accept
 
         # Block and log restricted services reaching outside LAN
