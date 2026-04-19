@@ -20,16 +20,13 @@ Item structure in the 'raspi' folder:
   yarr              login  username/password   (use alphanumeric-only password — no colons)
   navidrome         login  username/password
   syncthing         login  username/password   (web UI credentials)
-  beszel            login  email/password       fields: key (hub ed25519 pubkey shown when
-                           (email stored as            adding a system), token (from hub
-                           username; used to           /settings/tokens). Fields are optional
-                           bootstrap hub admin         on first deploy — agent fails auth
-                           + superuser)                silently until both are set, then
-                                                       redeploy. USER_EMAIL/PASSWORD seed the
-                                                       hub UI user on first boot (write-once);
-                                                       `beszel superuser upsert` runs every
-                                                       deploy to keep the PocketBase admin
-                                                       panel login in sync with BW.
+  beszel            login  email/password       (email stored as username; used to bootstrap
+                                               hub admin + superuser). USER_EMAIL/PASSWORD seed
+                                               the hub UI user on first boot (write-once);
+                                               `beszel superuser upsert` runs every deploy to
+                                               keep the PocketBase admin panel login in sync.
+                                               The agent universal token is fetched from the hub
+                                               API at deploy time — no Bitwarden field needed.
 """
 
 import functools
@@ -180,16 +177,6 @@ def syncthing_creds() -> dict:
 def dockerhub_creds() -> dict:
     login = _get_item("dockerhub")["login"]
     return {"username": login["username"], "password": login["password"]}
-
-
-def beszel_agent_creds() -> dict:
-    """Hub pubkey + agent token from Bitwarden. Returns empty strings if the
-    item is missing — agent then runs but fails auth until populated."""
-    try:
-        f = _fields("beszel")
-    except RuntimeError:
-        f = {}
-    return {"key": f.get("key", ""), "token": f.get("token", "")}
 
 
 def beszel_admin_creds() -> dict:

@@ -129,6 +129,7 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 | 8085 | Vaultwarden |
 | 8088 | Pi-hole DNS |
 | 8090 | ntfy |
+| 8091 | Beszel hub |
 | 8096 | VuIO (DLNA) |
 | 8888 | wg-portal |
 | 13378 | Audiobookshelf |
