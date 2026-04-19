@@ -20,8 +20,9 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 | [Syncthing](https://syncthing.net) | Peer-to-peer file synchronization |
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
+| [Beszel](https://github.com/henrygd/beszel) | Lightweight server monitoring — CPU, memory, disk, network, containers |
 
-HCC, Audiobookshelf, Navidrome, ntfy, Gatus and Vaultwarden run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
+HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
 
 ## Prerequisites
 
@@ -49,6 +50,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `cloudflare` | Cloudflare API token + zone ID |
 | `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
 | `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
+| `beszel` | Beszel hub admin email (`username`) + password — seeds the hub UI user and is kept in sync with both the PocketBase superuser and regular user on every deploy |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
 ## Setup
@@ -102,6 +104,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `status.yourdomain.com` | Gatus status page |
 | `vault.yourdomain.com` | Vaultwarden password vault |
 | `syncthing.yourdomain.com` | Syncthing file sync UI |
+| `metrics.yourdomain.com` | Beszel monitoring dashboard |
 
 ## ntfy mobile app setup
 
@@ -247,7 +250,7 @@ Podman container services get filesystem isolation from the container runtime it
 
 LAN-only services are blocked from reaching the internet via **nftables cgroup-based filtering** (`tasks/network_restrict.py`). This mitigates supply chain attacks where a compromised binary or container image tries to phone home.
 
-**Restricted services:** Audiobookshelf, Navidrome, ntfy, wg-portal, VuIO
+**Restricted services:** Audiobookshelf, Navidrome, ntfy, wg-portal, VuIO, Beszel hub, Beszel agent
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
