@@ -22,6 +22,8 @@ WG_SUBNET = WIREGUARD["subnet"]
 #   IPv4 limited broadcast (255.255.255.255) and IPv6 multicast (ff12::8384).
 RESTRICTED = [
     "audiobookshelf",
+    "beszel-hub",
+    "beszel-agent",
     "navidrome",
     "ntfy",
     "syncthing",
