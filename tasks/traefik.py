@@ -7,6 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 from group_data.all import (
     AUDIOBOOKSHELF,
+    BESZEL,
     GATUS,
     HCC,
     NAVIDROME,
@@ -202,6 +203,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    metrics:
+      rule: "Host(`metrics.{DOMAIN}`)"
+      service: metrics
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     pihole-redirect:
       redirectRegex:
@@ -259,6 +267,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{SYNCTHING["host"]}:{SYNCTHING["port"]}"
+
+    metrics:
+      loadBalancer:
+        servers:
+          - url: "http://{BESZEL["host"]}:{BESZEL["port"]}"
 """
 
 files.put(

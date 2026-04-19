@@ -20,6 +20,13 @@ Item structure in the 'raspi' folder:
   yarr              login  username/password   (use alphanumeric-only password — no colons)
   navidrome         login  username/password
   syncthing         login  username/password   (web UI credentials)
+  beszel            login  email/password       (email stored as username; used to bootstrap
+                                               hub admin + superuser). USER_EMAIL/PASSWORD seed
+                                               the hub UI user on first boot (write-once);
+                                               `beszel superuser upsert` runs every deploy to
+                                               keep the PocketBase admin panel login in sync.
+                                               The agent universal token is fetched from the hub
+                                               API at deploy time — no Bitwarden field needed.
 """
 
 import functools
@@ -170,6 +177,16 @@ def syncthing_creds() -> dict:
 def dockerhub_creds() -> dict:
     login = _get_item("dockerhub")["login"]
     return {"username": login["username"], "password": login["password"]}
+
+
+def beszel_admin_creds() -> dict:
+    """Hub admin email + password. Empty strings if item missing — hub will come
+    up with no admin user, set one via the web UI, populate BW, then redeploy."""
+    try:
+        login = _get_item("beszel")["login"]
+    except RuntimeError:
+        return {"email": "", "password": ""}
+    return {"email": login.get("username") or "", "password": login.get("password") or ""}
 
 
 def save_wg_server_key(private_key: str, public_key: str) -> None:
