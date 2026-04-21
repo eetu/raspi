@@ -84,6 +84,9 @@ entryPoints:
           permanent: true
   websecure:
     address: ":443"
+    http:
+      middlewares:
+        - compress@file
 
 certificatesResolvers:
   cloudflare:
@@ -211,6 +214,8 @@ http:
         certResolver: cloudflare
 
   middlewares:
+    compress:
+      compress: {{}}
     pihole-redirect:
       redirectRegex:
         regex: '^https://pihole\\.{DOMAIN}/$'
