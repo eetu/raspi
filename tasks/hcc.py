@@ -29,7 +29,7 @@ Pull=newer
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
-MemoryMax=64M
+MemoryMax=96M
 MemorySwapMax=64M
 
 [Install]

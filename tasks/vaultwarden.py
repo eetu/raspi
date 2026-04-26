@@ -5,9 +5,8 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
 from group_data.all import NETWORK, VAULTWARDEN
-from tasks.util import resolve_latest
+from tasks.util import resolve_latest, restart_if_changed
 
 _image = (
     resolve_latest("dani-garcia/vaultwarden", VAULTWARDEN["image"])
@@ -42,29 +41,16 @@ WantedBy=multi-user.target
 
 _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 
-# --- Secrets ---
-
-files.put(
-    name="Write vaultwarden.env",
-    src=io.BytesIO(
-        (
-            f"ADMIN_TOKEN={bw.vaultwarden_admin_token_hash()}\n"
-            f"SIGNUPS_ALLOWED=false\n"
-            f"SMTP_HOST=smtp.gmail.com\n"
-            f"SMTP_PORT=587\n"
-            f"SMTP_SECURITY=starttls\n"
-            f"SMTP_USERNAME={bw.vaultwarden_smtp_email()}\n"
-            f"SMTP_FROM={bw.vaultwarden_smtp_email()}\n"
-            f"SMTP_PASSWORD={bw.vaultwarden_smtp_password()}\n"
-        ).encode()
-    ),
-    dest="/etc/secrets/vaultwarden.env",
-    user="root",
-    group="root",
-    mode="600",
-)
-
 # --- Data directory ---
+# Secrets are written by tasks/secrets.py → /etc/secrets/vaultwarden.env
+# Remove config.json so env vars are the sole source of truth. The admin panel
+# writes this file and it overrides env vars for any key it contains.
+
+files.file(
+    name="Remove vaultwarden config.json (env vars are authoritative)",
+    path="/var/lib/vaultwarden/config.json",
+    present=False,
+)
 
 files.directory(
     name="Create /var/lib/vaultwarden",
@@ -103,17 +89,8 @@ systemd.service(
 server.shell(
     name="Restart vaultwarden if quadlet or env changed",
     commands=[
-        f"""
-        QSTAMP=/etc/containers/systemd/.vaultwarden-quadlet-stamp
-        ESTAMP=/etc/secrets/.vaultwarden-env-stamp
-        ENV_HASH=$(sha256sum /etc/secrets/vaultwarden.env | cut -d' ' -f1)
-
-        if [ "$(cat "$QSTAMP" 2>/dev/null)" != "{_quadlet_hash}" ] || \
-           [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
-          systemctl restart vaultwarden
-          echo '{_quadlet_hash}' > "$QSTAMP"
-          echo "$ENV_HASH" > "$ESTAMP"
-        fi
-        """,
+        restart_if_changed(
+            "vaultwarden", _quadlet_hash, env_files=("/etc/secrets/vaultwarden.env",)
+        )
     ],
 )

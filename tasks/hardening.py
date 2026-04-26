@@ -7,7 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 from group_data.all import NETWORK, WIREGUARD
 
-# --- traefik system user (created early so secrets_files.py can assign group ownership) ---
+# --- traefik system user (created early so secrets.py can assign group ownership) ---
 
 server.group(name="Create traefik group", group="traefik", system=True)
 server.user(

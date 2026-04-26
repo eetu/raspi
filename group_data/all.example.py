@@ -77,6 +77,8 @@ HOSTS = {
     "nasname": "192.168.x.y",  # NAS hostname → IP; add any host that needs a static /etc/hosts entry
 }
 
+SHELL = "/usr/bin/fish"  # /usr/bin/zsh, usr/bin/bash
+
 CIFS = {
     "audiobooks": {
         "share": "//nasname/audiobooks",  # NetBIOS hostname of your NAS
@@ -157,4 +159,64 @@ BESZEL = {
     "port": 8091,  # hub web UI (8090 taken by ntfy)
     "version": "v0.18.7",
     "agent_image": "docker.io/henrygd/beszel-agent:0.18.7",  # Podman Quadlet
+}
+
+KANIDM = {
+    "host": "127.0.0.1",
+    "port": 8443,
+    # Pin to a specific release; set resolve_latest=True to track the latest 1.x.
+    "image": "docker.io/kanidm/server:1.9.2",
+    "resolve_latest": False,
+}
+
+# One entry per service that authenticates via Kanidm OIDC.
+# secret_field: name of the hidden field in the `kanidm` Bitwarden item.
+# disable_pkce: set True for clients that don't support PKCE (Kanidm enforces it by default).
+KANIDM_OIDC_CLIENTS = {
+    "vaultwarden": {
+        "display_name": "Vaultwarden Password Manager",
+        "url_prefix": "vault",  # → https://vault.{domain}
+        "redirect_path": "/identity/connect/oidc-signin",
+        "scopes": ["openid", "profile", "email"],
+        "secret_field": "vw_client_secret",
+    },
+    "gatus": {
+        "display_name": "Gatus Monitoring",
+        "url_prefix": "status",
+        "redirect_path": "/authorization-code/callback",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "gatus_client_secret",
+        "disable_pkce": True,
+    },
+    "wgportal": {
+        "display_name": "WireGuard Portal",
+        "url_prefix": "vpn",
+        "redirect_path": "/api/v0/auth/login/oidc/callback",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "wgportal_client_secret",
+    },
+    "audiobookshelf": {
+        "display_name": "Audiobookshelf",
+        "url_prefix": "audiobooks",
+        "redirect_path": "/audiobookshelf/auth/openid/callback",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "abs_client_secret",
+    },
+    "beszel": {
+        "display_name": "Beszel Monitoring",
+        "url_prefix": "metrics",
+        "redirect_path": "/api/oauth2-redirect",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "beszel_client_secret",
+    },
+}
+
+# Kanidm person accounts. Credential setup is one-shot: the deploy generates a
+# reset token, saves it to BW ({username}_reset_token field), and prints the URL.
+# Visit the URL once to set your password/passkey.
+KANIDM_PERSONS = {
+    "bob": {
+        "display_name": "The Bob",
+        "email": "bob@bob",
+    },
 }

@@ -79,6 +79,7 @@ def configure_dns(state=None, host=None):
         "music",
         "syncthing",
         "metrics",
+        "idm",
     ):
         _ensure_record(subdomain, lan_ip, "A")
 

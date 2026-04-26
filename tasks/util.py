@@ -15,7 +15,7 @@ def restart_if_changed(
 
     `static_hash` covers content known at plan time (unit + inline config strings).
     `env_files` are paths hashed at run time — useful for secrets written by
-    tasks/secrets_files.py that rotate out-of-band. The combined stamp lives at
+    tasks/secrets.py that rotate out-of-band. The combined stamp lives at
     `/etc/systemd/system/.{service}-stamp`.
     """
     stamp = f"/etc/systemd/system/.{service}-stamp"

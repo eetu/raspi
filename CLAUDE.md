@@ -45,7 +45,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Kanidm)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -80,16 +80,16 @@ CIFS (NAS) credentials are consolidated in a single `cifs` Bitwarden item with p
 
 ### Rotating a secret
 
-`tasks/secrets_files.py` is the sole owner of writing all `/etc/secrets/*` files. Service tasks detect secret changes by hashing the on-disk file after it has been written — they never read from Bitwarden directly. To rotate a secret and restart the affected service in one shot:
+`tasks/secrets.py` is the sole owner of writing all `/etc/secrets/*` files. Service tasks detect secret changes by hashing the on-disk file after it has been written — they never read from Bitwarden directly. To rotate a secret and restart the affected service in one shot:
 
 ```fish
-uv run pyinfra inventory.py tasks/secrets_files.py tasks/<service>.py
+uv run pyinfra inventory.py tasks/secrets.py tasks/<service>.py
 ```
 
 Examples:
-- `tasks/secrets_files.py tasks/hcc.py` — rotate HCC credentials
-- `tasks/secrets_files.py tasks/traefik.py` — rotate Cloudflare API token
-- `tasks/secrets_files.py tasks/cifs.py` — rotate NAS credentials (remounts shares)
+- `tasks/secrets.py tasks/hcc.py` — rotate HCC credentials
+- `tasks/secrets.py tasks/traefik.py` — rotate Cloudflare API token
+- `tasks/secrets.py tasks/cifs.py` — rotate NAS credentials (remounts shares)
 
 ## Security hardening
 
@@ -105,6 +105,14 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 ### Adding network restrictions to a new service
 1. Add the service name to the `RESTRICTED` list in `tasks/network_restrict.py`
 2. If the service needs specific non-LAN destinations (e.g., SSDP multicast), add an accept rule before the drop rules
+
+## SSO/OIDC (Kanidm)
+
+`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. To wire a new service into SSO:
+
+1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support it)
+2. In the service task, look up the entry with `KANIDM_OIDC_CLIENTS.get(name)` and only configure SSO when both the entry exists *and* `bw.kanidm_oidc_secret(...)` returns non-empty. This keeps OIDC truly optional — removing the entry (or starting with an empty dict) deploys the service without SSO; the empty-secret guard also handles the first deploy where the secret hasn't been generated yet.
+3. First deploy generates the secret in Kanidm and saves it to BW; second deploy propagates it to the service's env file.
 
 ## Traefik
 
@@ -130,6 +138,7 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 | 8088 | Pi-hole DNS |
 | 8090 | ntfy |
 | 8091 | Beszel hub |
+| 8443 | Kanidm (HTTPS) |
 | 8096 | VuIO (DLNA) |
 | 8888 | wg-portal |
 | 13378 | Audiobookshelf |
