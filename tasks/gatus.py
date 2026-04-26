@@ -5,7 +5,8 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import CIFS, GATUS, NETWORK, NTFY, UNBOUND
+import vault as bw
+from group_data.all import CIFS, GATUS, KANIDM_OIDC_CLIENTS, NETWORK, NTFY, UNBOUND
 from tasks.util import resolve_latest
 
 DOMAIN = NETWORK["domain"]
@@ -13,6 +14,11 @@ DOMAIN = NETWORK["domain"]
 _image = (
     resolve_latest("TwiN/gatus", GATUS["image"]) if GATUS.get("resolve_latest") else GATUS["image"]
 )
+
+# OIDC is optional — Gatus deploys without SSO if not in KANIDM_OIDC_CLIENTS
+# or until Kanidm has generated the client secret on a previous deploy.
+_oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
+_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
 _config_yaml = f"""\
 alerting:
@@ -144,7 +150,19 @@ endpoints:
     alerts:
       - type: ntfy
 
-storage:
+{
+    ""
+    if not _oidc_secret
+    else f'''security:
+  oidc:
+    issuer-url: "https://idm.{DOMAIN}/oauth2/openid/gatus"
+    client-id: "gatus"
+    client-secret: "{_oidc_secret}"
+    redirect-url: "https://status.{DOMAIN}/authorization-code/callback"
+    scopes:
+      - openid
+'''
+}storage:
   type: sqlite
   path: /data/gatus.db
 
@@ -202,7 +220,7 @@ files.put(
     dest="/etc/gatus/config.yaml",
     user="root",
     group="root",
-    mode="644",
+    mode="600",
 )
 
 files.put(

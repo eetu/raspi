@@ -9,8 +9,14 @@ from pyinfra import logger
 from pyinfra.operations import files, python, server, systemd
 
 import vault as bw
-from group_data.all import AUDIOBOOKSHELF, CIFS
+from group_data.all import AUDIOBOOKSHELF, CIFS, KANIDM_OIDC_CLIENTS, NETWORK
 from tasks.util import resolve_latest
+
+# OIDC is optional — service deploys without SSO if not in KANIDM_OIDC_CLIENTS
+# or until Kanidm has generated the client secret on a previous deploy.
+_oidc_client = KANIDM_OIDC_CLIENTS.get("audiobookshelf")
+_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+_idm_domain = f"idm.{NETWORK['domain']}"
 
 _image = (
     resolve_latest("advplyr/audiobookshelf", AUDIOBOOKSHELF["image"])
@@ -198,6 +204,56 @@ print('yes' if any(f['fullPath'] == '/audiobooks' for l in libs for f in l.get('
         """,
     ],
 )
+
+
+if _oidc_secret:
+    _oidc_settings = json.dumps(
+        {
+            "authActiveAuthMethods": ["local", "openid"],
+            "authOpenIDIssuerURL": f"https://{_idm_domain}/oauth2/openid/audiobookshelf",
+            "authOpenIDAuthorizationURL": f"https://{_idm_domain}/ui/oauth2",
+            "authOpenIDTokenURL": f"https://{_idm_domain}/oauth2/token",
+            "authOpenIDUserInfoURL": f"https://{_idm_domain}/oauth2/openid/audiobookshelf/userinfo",
+            "authOpenIDJwksURL": f"https://{_idm_domain}/oauth2/openid/audiobookshelf/public_key.jwk",
+            "authOpenIDClientID": "audiobookshelf",
+            "authOpenIDClientSecret": _oidc_secret,
+            "authOpenIDTokenSigningAlgorithm": "ES256",
+            "authOpenIDButtonText": "Login with Kanidm",
+            "authOpenIDAutoLaunch": False,
+            "authOpenIDAutoRegister": True,
+            "authOpenIDMatchExistingBy": "email",
+            "authOpenIDSubfolderForRedirectURLs": "/audiobookshelf",
+            "authOpenIDMobileRedirectURIs": ["audiobookshelf://oauth"],
+        }
+    )
+
+    server.shell(
+        name="Configure Audiobookshelf OIDC settings",
+        commands=[
+            f"""
+            ABS_URL="http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
+            DB=/var/lib/audiobookshelf/config/absdatabase.sqlite
+            TOKEN=$(sqlite3 "$DB" "SELECT token FROM users WHERE type='root' LIMIT 1;" 2>/dev/null || true)
+            if [ -z "$TOKEN" ]; then
+              echo "ABS: no root token, skipping OIDC config" >&2
+              exit 0
+            fi
+            curl -sf -X PATCH "$ABS_URL/api/settings" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{_oidc_settings}' > /dev/null 2>&1
+            echo "ABS: OIDC settings applied"
+
+            # Set email on root user so OIDC login matches by email
+            USER_ID=$(sqlite3 "$DB" "SELECT id FROM users WHERE type='root' LIMIT 1;" 2>/dev/null || true)
+            ABS_EMAIL={json.dumps(_creds["username"])}
+            curl -sf -X PATCH "$ABS_URL/api/users/$USER_ID" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{{\\"email\\":$ABS_EMAIL}}" > /dev/null 2>&1 || true
+            """,
+        ],
+    )
 
 
 def _save_api_key_to_bw():

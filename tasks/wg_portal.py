@@ -6,7 +6,7 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import NETWORK, WGPORTAL, WIREGUARD
+from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, WGPORTAL, WIREGUARD
 from tasks.util import restart_if_changed
 
 VERSION = WGPORTAL["version"]
@@ -30,6 +30,10 @@ server.shell(
 # --- Config ---
 
 creds = bw.wg_portal_creds()
+# OIDC is optional — wg-portal deploys without SSO if not in KANIDM_OIDC_CLIENTS
+# or until Kanidm has generated the client secret on a previous deploy.
+_oidc_client = KANIDM_OIDC_CLIENTS.get("wgportal")
+_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
 config_yaml = f"""core:
   admin_user:      "{creds["username"]}"
@@ -54,7 +58,25 @@ wireguard:
       allowed_ips:
         - "0.0.0.0/0"
         - "::/0"
-"""
+{
+    ""
+    if not _oidc_secret
+    else f'''
+auth:
+  callback_url_prefix: "https://vpn.{NETWORK["domain"]}/api/v0"
+  oidc:
+    - provider_name: oidc
+      display_name: "Login with Kanidm"
+      base_url: "https://idm.{NETWORK["domain"]}/oauth2/openid/wgportal"
+      client_id: "wgportal"
+      client_secret: "{_oidc_secret}"
+      extra_scopes:
+        - profile
+        - email
+      pkce_enabled: true
+      registration_enabled: true
+'''
+}"""
 
 for path in ("/etc/wg-portal", "/etc/wg-portal/config"):
     files.directory(

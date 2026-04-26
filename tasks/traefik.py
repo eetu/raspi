@@ -10,6 +10,7 @@ from group_data.all import (
     BESZEL,
     GATUS,
     HCC,
+    KANIDM,
     NAVIDROME,
     NETWORK,
     NTFY,
@@ -213,6 +214,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    idm:
+      rule: "Host(`idm.{DOMAIN}`)"
+      service: idm
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -277,6 +285,18 @@ http:
       loadBalancer:
         servers:
           - url: "http://{BESZEL["host"]}:{BESZEL["port"]}"
+
+    idm:
+      loadBalancer:
+        servers:
+          - url: "https://{KANIDM["host"]}:{KANIDM["port"]}"
+        serversTransport: kanidmTransport
+
+  serversTransports:
+    kanidmTransport:
+      # Kanidm serves the ACME wildcard cert (Let's Encrypt) — trusted by system CAs.
+      # serverName overrides SNI so hostname verification passes on loopback.
+      serverName: "idm.{DOMAIN}"
 """
 
 files.put(

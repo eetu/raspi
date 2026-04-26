@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 
 from pyinfra.operations import files, server, systemd
 
@@ -17,6 +18,8 @@ BINARY_URL = (
 )
 
 _creds = bw.syncthing_creds()
+_user_json = json.dumps(_creds["username"])
+_pw_json = json.dumps(_creds["password"])
 
 # --- Binary ---
 
@@ -152,4 +155,33 @@ systemd.service(
 server.shell(
     name="Restart syncthing if unit changed",
     commands=[restart_if_changed("syncthing", _unit_hash)],
+)
+
+server.shell(
+    name="Sync Syncthing GUI credentials from Bitwarden",
+    commands=[
+        f"""
+        python3 << 'PYEOF'
+import json, time, urllib.request, xml.etree.ElementTree as ET
+user = {_user_json}
+pw = {_pw_json}
+tree = ET.parse("/var/lib/syncthing/config.xml")
+api_key = tree.getroot().find("gui/apikey").text
+base = "http://{SYNCTHING["host"]}:{SYNCTHING["port"]}"
+for _ in range(15):
+    try:
+        urllib.request.urlopen(base + "/rest/noauth/health", timeout=2)
+        break
+    except Exception:
+        time.sleep(2)
+headers = {{"X-API-Key": api_key, "Content-Type": "application/json"}}
+gui = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/rest/config/gui", headers=headers)).read())
+gui["user"] = user
+gui["password"] = pw
+req = urllib.request.Request(base + "/rest/config/gui", data=json.dumps(gui).encode(), headers=headers, method="PUT")
+urllib.request.urlopen(req)
+print("syncthing: GUI credentials synced")
+PYEOF
+        """,
+    ],
 )

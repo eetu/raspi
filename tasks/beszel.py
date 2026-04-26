@@ -50,7 +50,9 @@ for path in ("/var/lib/beszel-hub", "/var/lib/beszel-agent"):
 # the hub starts. TOKEN is only fetched once; KEY is synced on every deploy.
 
 _admin = bw.beszel_admin_creds()
-_hub_env = f'USER_EMAIL="{_admin["email"]}"\nUSER_PASSWORD="{_admin["password"]}"\n'
+_hub_env = (
+    f'USER_EMAIL="{_admin["email"]}"\nUSER_PASSWORD="{_admin["password"]}"\nUSER_CREATION=true\n'
+)
 
 files.put(
     name="Write beszel-hub env",

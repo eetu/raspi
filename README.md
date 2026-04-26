@@ -21,8 +21,9 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Syncthing](https://syncthing.net) | Peer-to-peer file synchronization |
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
 | [Beszel](https://github.com/henrygd/beszel) | Lightweight server monitoring — CPU, memory, disk, network, containers |
+| [Kanidm](https://kanidm.com) | Identity management — SSO/OIDC provider for all services that support it |
 
-HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
+HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
 
 ## Prerequisites
 
@@ -51,6 +52,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `dockerhub` | Docker Hub username + personal access token (avoids unauthenticated pull rate limits) |
 | `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
 | `beszel` | Beszel hub admin email (`username`) + password — seeds the hub UI user and is kept in sync with both the PocketBase superuser and regular user on every deploy |
+| `kanidm` | All fields written by the deploy on first run — create an empty login item named `kanidm`. Populated fields: `admin_password` and `idm_admin_password` (hidden, recovered via `kanidmd recover-account`), `{client}_client_secret` per OIDC client, `{username}_reset_token` per person |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
 ## Setup
@@ -105,6 +107,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `vault.yourdomain.com` | Vaultwarden password vault |
 | `syncthing.yourdomain.com` | Syncthing file sync UI |
 | `metrics.yourdomain.com` | Beszel monitoring dashboard |
+| `idm.yourdomain.com` | Kanidm identity management |
 
 ## ntfy mobile app setup
 
@@ -192,6 +195,40 @@ In the Bitwarden desktop app or browser extension you can be logged into multipl
 3. Set the server URL to `https://vault.yourdomain.com`
 4. Log in with the account you created
 
+## Kanidm (SSO/OIDC) setup
+
+Kanidm provides single sign-on for services that support OIDC (starting with Vaultwarden). The deploy fully automates Kanidm setup — no manual configuration needed for the server itself.
+
+**What the deploy does automatically:**
+
+1. Starts the Kanidm container with TLS (reuses Traefik's ACME wildcard cert via a systemd path watcher)
+2. Bootstraps the admin password from Bitwarden (one-shot, not kept in container env)
+3. Creates person accounts defined in `KANIDM_PERSONS` in `all.py`
+4. Generates credential reset tokens and saves them to Bitwarden
+5. Configures OAuth2/OIDC clients defined in `KANIDM_OIDC_CLIENTS` in `all.py`
+
+**After the first deploy — set up your credentials:**
+
+1. Retrieve your credential reset token from Bitwarden:
+   ```sh
+   bw get item kanidm | jq -r '.fields[] | select(.name == "yourusername_reset_token") | .value'
+   ```
+2. Visit the URL printed by the token — it opens Kanidm's credential setup page
+3. Set a password and/or register a passkey
+4. You can now log in to `https://idm.yourdomain.com` and to any OIDC-enabled service (e.g. Vaultwarden) using your Kanidm identity
+
+**Adding a new person:**
+
+Add an entry to `KANIDM_PERSONS` in `group_data/all.py` and redeploy. The reset token will be saved to Bitwarden and printed during deploy.
+
+**Adding OIDC to a new service:**
+
+1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support PKCE)
+2. In the service's task, read the client secret via `bw.kanidm_oidc_secret(KANIDM_OIDC_CLIENTS[name]["secret_field"])` and only configure SSO when it is non-empty (see `tasks/secrets.py` and `tasks/wg_portal.py` for examples)
+3. First deploy registers the client in Kanidm and saves the generated secret to Bitwarden. A second deploy then propagates it into the service's env file and turns SSO on.
+
+OIDC is fully optional — services that aren't in `KANIDM_OIDC_CLIENTS` deploy normally without any SSO configuration. You can also leave the dict empty entirely if you don't want to use Kanidm SSO for any service.
+
 ## IPv6 DDNS and router firewall automation
 
 The DDNS timer runs every 5 minutes and updates the `wg.<domain>` AAAA record in Cloudflare when the Pi's global IPv6 changes (ISPs periodically rotate the /64 prefix).
@@ -254,7 +291,7 @@ LAN-only services are blocked from reaching the internet via **nftables cgroup-b
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
-**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Syncthing (peer sync), Gatus (uptime checks), Vaultwarden (SMTP), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
+**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Syncthing (peer sync), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
 
 Blocked connection attempts are logged to the kernel journal with `BREACH:<service>:` prefix, including the destination IP.
 
