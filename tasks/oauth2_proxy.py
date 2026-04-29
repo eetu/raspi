@@ -44,13 +44,40 @@ server.shell(
 
 # --- Config ---
 
-files.directory(
-    name="Create /etc/oauth2-proxy",
-    path="/etc/oauth2-proxy",
+for _dir in ("/etc/oauth2-proxy", "/etc/oauth2-proxy/templates"):
+    files.directory(
+        name=f"Create {_dir}",
+        path=_dir,
+        user="root",
+        group="root",
+        mode="755",
+        present=True,
+    )
+
+# Custom sign_in template: auto-submits a GET form to /oauth2/start so the
+# browser redirects to Kanidm immediately. Traefik's errors middleware keeps
+# the original 401 status when calling the sign_in handler, so we can't rely
+# on the handler's 302 being forwarded — a form submit works with any status.
+_signin_html = f"""\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Logging in...</title></head>
+<body onload="document.forms[0].submit()">
+<form method="GET" action="https://auth.{DOMAIN}/oauth2/start">
+  <input type="hidden" name="rd" value="{{{{.Redirect}}}}">
+  <noscript><button type="submit">Login with Kanidm</button></noscript>
+</form>
+</body>
+</html>
+"""
+
+files.put(
+    name="Write oauth2-proxy sign_in template",
+    src=io.BytesIO(_signin_html.encode()),
+    dest="/etc/oauth2-proxy/templates/sign_in.html",
     user="root",
     group="root",
-    mode="755",
-    present=True,
+    mode="644",
 )
 
 config_cfg = f"""\
@@ -71,6 +98,7 @@ session_store_type = "cookie"
 
 redirect_url = "https://auth.{DOMAIN}/oauth2/callback"
 upstreams = ["static://202"]
+custom_templates_dir = "/etc/oauth2-proxy/templates"
 
 # Kanidm enforces PKCE by default for OAuth2 clients.
 code_challenge_method = "S256"
@@ -85,11 +113,8 @@ user_id_claim = "preferred_username"
 cookie_csrf_per_request = true
 
 email_domains = ["*"]
-skip_provider_button = true
+skip_provider_button = false
 set_xauthrequest = true
-
-# Don't force the Kanidm consent screen on every login (default is "force").
-prompt = "none"
 """
 
 files.put(

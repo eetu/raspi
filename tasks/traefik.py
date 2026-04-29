@@ -297,6 +297,7 @@ http:
         authResponseHeaders:
           - X-Auth-Request-User
           - X-Auth-Request-Email
+          - Set-Cookie
 {_oauth2_per_host_middlewares.rstrip()}
 
   services:
