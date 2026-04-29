@@ -26,6 +26,7 @@ RESTRICTED = [
     "beszel-agent",
     "navidrome",
     "ntfy",
+    "oauth2-proxy",
     "syncthing",
     "wg-portal",
     "vuio",

@@ -14,6 +14,7 @@ from group_data.all import (
     NAVIDROME,
     NETWORK,
     NTFY,
+    OAUTH2_PROXY,
     PIHOLE,
     SYNCTHING,
     TRAEFIK,
@@ -29,6 +30,13 @@ BINARY_URL = (
     f"traefik_{VERSION}_linux_arm64.tar.gz"
 )
 DOMAIN = NETWORK["domain"]
+
+# Hosts gated by oauth2-proxy. Each gets a per-host errors middleware whose
+# `rd` parameter pins the post-auth redirect target — Traefik's errors
+# middleware only substitutes {status} in `query`, and X-Forwarded-Uri is not
+# propagated to the auth backend, so oauth2-proxy can't reconstruct the
+# origin URL on its own.
+OAUTH2_GATED_HOSTS = ("pihole", "rss", "music", "syncthing")
 
 # --- Binary ---
 
@@ -69,6 +77,20 @@ server.shell(
         chown traefik:traefik /etc/traefik/acme.json
         """,
     ],
+)
+
+_oauth2_per_host_middlewares = "".join(
+    f"""\
+    oauth2-errors-{h}:
+      errors:
+        status: ["401"]
+        service: auth
+        query: "/oauth2/sign_in?rd=https%3A%2F%2F{h}.{DOMAIN}%2F"
+    oauth2-chain-{h}:
+      chain:
+        middlewares: [oauth2-errors-{h}, oauth2-proxy]
+"""
+    for h in OAUTH2_GATED_HOSTS
 )
 
 # --- Static config ---
@@ -136,11 +158,20 @@ http:
           - main: "{DOMAIN}"
             sans: ["*.{DOMAIN}"]
 
+    # Unauthenticated Pi-hole API path used by Gatus uptime checks.
+    pihole-monitor:
+      rule: "Host(`pihole.{DOMAIN}`) && Path(`/api/info/version`)"
+      service: pihole
+      priority: 100
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
     pihole-root:
       rule: "Host(`pihole.{DOMAIN}`) && Path(`/`)"
       service: pihole
       entryPoints: [websecure]
-      middlewares: [pihole-redirect]
+      middlewares: [oauth2-chain-pihole, pihole-redirect]
       tls:
         certResolver: cloudflare
 
@@ -148,6 +179,7 @@ http:
       rule: "Host(`pihole.{DOMAIN}`)"
       service: pihole
       entryPoints: [websecure]
+      middlewares: [oauth2-chain-pihole]
       tls:
         certResolver: cloudflare
 
@@ -190,12 +222,33 @@ http:
       rule: "Host(`rss.{DOMAIN}`)"
       service: rss
       entryPoints: [websecure]
+      middlewares: [oauth2-chain-rss]
+      tls:
+        certResolver: cloudflare
+
+    # Subsonic API stays open (mobile clients use username/password); priority
+    # forces this route ahead of the catch-all `music` router below.
+    music-subsonic:
+      rule: "Host(`music.{DOMAIN}`) && (PathPrefix(`/rest`) || PathPrefix(`/share`))"
+      service: music
+      priority: 100
+      entryPoints: [websecure]
       tls:
         certResolver: cloudflare
 
     music:
       rule: "Host(`music.{DOMAIN}`)"
       service: music
+      entryPoints: [websecure]
+      middlewares: [oauth2-chain-music]
+      tls:
+        certResolver: cloudflare
+
+    # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
+    syncthing-monitor:
+      rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
+      service: syncthing
+      priority: 100
       entryPoints: [websecure]
       tls:
         certResolver: cloudflare
@@ -204,6 +257,7 @@ http:
       rule: "Host(`syncthing.{DOMAIN}`)"
       service: syncthing
       entryPoints: [websecure]
+      middlewares: [oauth2-chain-syncthing]
       tls:
         certResolver: cloudflare
 
@@ -221,6 +275,13 @@ http:
       tls:
         certResolver: cloudflare
 
+    auth:
+      rule: "Host(`auth.{DOMAIN}`)"
+      service: auth
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -229,6 +290,14 @@ http:
         regex: '^https://pihole\\.{DOMAIN}/$'
         replacement: 'https://pihole.{DOMAIN}/admin'
         permanent: true
+    oauth2-proxy:
+      forwardAuth:
+        address: "http://{OAUTH2_PROXY["host"]}:{OAUTH2_PROXY["port"]}/oauth2/auth"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-Auth-Request-User
+          - X-Auth-Request-Email
+{_oauth2_per_host_middlewares.rstrip()}
 
   services:
     hcc:
@@ -291,6 +360,11 @@ http:
         servers:
           - url: "https://{KANIDM["host"]}:{KANIDM["port"]}"
         serversTransport: kanidmTransport
+
+    auth:
+      loadBalancer:
+        servers:
+          - url: "http://{OAUTH2_PROXY["host"]}:{OAUTH2_PROXY["port"]}"
 
   serversTransports:
     kanidmTransport:

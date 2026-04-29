@@ -169,6 +169,12 @@ KANIDM = {
     "resolve_latest": False,
 }
 
+OAUTH2_PROXY = {
+    "host": "127.0.0.1",
+    "port": 9090,
+    "version": "v7.15.2",
+}
+
 # One entry per service that authenticates via Kanidm OIDC.
 # secret_field: name of the hidden field in the `kanidm` Bitwarden item.
 # disable_pkce: set True for clients that don't support PKCE (Kanidm enforces it by default).
@@ -208,6 +214,13 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/api/oauth2-redirect",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "beszel_client_secret",
+    },
+    "oauth2-proxy": {
+        "display_name": "OAuth2 Proxy Forward-Auth Gateway",
+        "url_prefix": "auth",
+        "redirect_path": "/oauth2/callback",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "oauth2_proxy_client_secret",
     },
 }
 

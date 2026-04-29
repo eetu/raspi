@@ -41,7 +41,8 @@ endpoints:
       - type: ntfy
 
   - name: Pi-hole
-    url: "https://pihole.{DOMAIN}/admin"
+    # Public unauth endpoint — bypasses oauth2-proxy via the pihole-monitor router.
+    url: "https://pihole.{DOMAIN}/api/info/version"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
@@ -81,7 +82,9 @@ endpoints:
       - type: ntfy
 
   - name: Navidrome
-    url: "https://music.{DOMAIN}"
+    # Subsonic ping bypasses oauth2-proxy via the music-subsonic router and
+    # always returns 200 (auth status is reported in the JSON body).
+    url: "https://music.{DOMAIN}/rest/ping.view?u=gatus&p=gatus&v=1.16.1&c=gatus&f=json"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
@@ -89,15 +92,21 @@ endpoints:
       - type: ntfy
 
   - name: Yarr
+    # No public unauth endpoint — accept 200 (authenticated) or 401
+    # (oauth2-proxy forwardAuth response). ignore-redirect stops Gatus from
+    # following oauth2-proxy's 302 to the Kanidm login page.
     url: "https://rss.{DOMAIN}"
     interval: 1m
+    client:
+      ignore-redirect: true
     conditions:
-      - "[STATUS] == 200"
+      - "[STATUS] == any(200, 302, 401)"
     alerts:
       - type: ntfy
 
   - name: Syncthing
-    url: "https://syncthing.{DOMAIN}"
+    # /rest/noauth/health bypasses oauth2-proxy via the syncthing-monitor router.
+    url: "https://syncthing.{DOMAIN}/rest/noauth/health"
     interval: 1m
     conditions:
       - "[STATUS] == 200"

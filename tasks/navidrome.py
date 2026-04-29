@@ -44,6 +44,10 @@ Environment=ND_LASTFM_ENABLED=false
 Environment=ND_LISTENBRAINZ_ENABLED=false
 Environment=ND_UPDATECHECK=false
 Environment=ND_COVERARTPRIORITY=embedded,cover.*,folder.*,front.*
+# SSO via oauth2-proxy: trust X-Auth-Request-User from Traefik on loopback.
+# Subsonic API still uses native username/password (see music-subsonic router).
+Environment=ND_REVERSEPROXYUSERHEADER=X-Auth-Request-User
+Environment=ND_REVERSEPROXYWHITELIST=127.0.0.1/32
 AutoUpdate=registry
 Pull=newer
 

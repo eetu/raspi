@@ -80,6 +80,7 @@ def configure_dns(state=None, host=None):
         "syncthing",
         "metrics",
         "idm",
+        "auth",
     ):
         _ensure_record(subdomain, lan_ip, "A")
 

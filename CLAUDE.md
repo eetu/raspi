@@ -141,6 +141,7 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 | 8443 | Kanidm (HTTPS) |
 | 8096 | VuIO (DLNA) |
 | 8888 | wg-portal |
+| 9090 | oauth2-proxy |
 | 13378 | Audiobookshelf |
 | 51820 | WireGuard (UDP) |
 
