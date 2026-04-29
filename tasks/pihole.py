@@ -6,7 +6,7 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import NETWORK, PIHOLE, UNBOUND
+from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, PIHOLE, UNBOUND
 
 # --- setupVars for unattended installer ---
 
@@ -81,10 +81,17 @@ server.shell(
 )
 
 # --- Admin password ---
+# Disable Pi-hole's own auth when oauth2-proxy is active — Traefik enforces
+# SSO before requests reach Pi-hole, and the web UI is localhost-only anyway.
+
+_op_oidc = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
+_op_secret = bw.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
 
 server.shell(
     name="Set Pi-hole admin password",
-    commands=[f"pihole setpassword '{bw.pihole_password()}'"],
+    commands=[
+        "pihole setpassword ''" if _op_secret else f"pihole setpassword '{bw.pihole_password()}'"
+    ],
 )
 
 # --- Blocklists + gravity (INSERT OR IGNORE is idempotent; gravity guarded by stamp) ---
