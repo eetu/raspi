@@ -45,7 +45,6 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `cifs` | NAS share credentials — per-share fields: `{share}_username`, `{share}_password` (hidden), keyed by CIFS dict entries in `all.py` |
 | `audiobookshelf` | ABS admin credentials (`login`), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
 | `navidrome` | Navidrome admin credentials (`login`) |
-| `yarr` | Yarr login credentials (`login`) |
 | `syncthing` | Syncthing web UI credentials (`login`) |
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
@@ -231,6 +230,19 @@ Add an entry to `KANIDM_PERSONS` in `group_data/all.py` and redeploy. The reset 
 3. First deploy registers the client in Kanidm and saves the generated secret to Bitwarden. A second deploy then propagates it into the service's env file and turns SSO on.
 
 OIDC is fully optional — services that aren't in `KANIDM_OIDC_CLIENTS` deploy normally without any SSO configuration. You can also leave the dict empty entirely if you don't want to use Kanidm SSO for any service.
+
+## oauth2-proxy (forward-auth for services without native OIDC)
+
+Services that don't support Kanidm OIDC directly are gated via oauth2-proxy running at `auth.{domain}`. Traefik's `forwardAuth` middleware redirects unauthenticated requests to the Kanidm login page; after login the session cookie (scoped to `.{domain}`) is shared across all gated subdomains.
+
+**Gated services:** Pi-hole, Yarr, Navidrome web UI, Syncthing
+
+**Exempted paths (no auth required):**
+- Navidrome Subsonic API (`/rest`, `/share`) — mobile clients use native username/password
+- Pi-hole `/api/info/version` — used by Gatus uptime checks
+- Syncthing `/rest/noauth/health` — used by Gatus uptime checks
+
+No manual setup needed — oauth2-proxy is fully provisioned by the deploy (binary, config, systemd unit, Kanidm OIDC client, cookie secret in Bitwarden).
 
 ## IPv6 DDNS and router firewall automation
 
