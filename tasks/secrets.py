@@ -72,3 +72,16 @@ _put_secret(
     "\n".join(_vw_lines) + "\n",
     "/etc/secrets/vaultwarden.env",
 )
+
+# --- oauth2-proxy ---
+# Skipped on first deploy until kanidm_oidc.py has generated the client secret.
+
+_op_oidc = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
+_op_client_secret = bw.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
+if _op_client_secret:
+    _put_secret(
+        "oauth2-proxy.env",
+        f"OAUTH2_PROXY_CLIENT_SECRET={_op_client_secret}\n"
+        f"OAUTH2_PROXY_COOKIE_SECRET={bw.oauth2_proxy_cookie_secret()}\n",
+        "/etc/secrets/oauth2-proxy.env",
+    )

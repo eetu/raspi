@@ -22,8 +22,9 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
 | [Beszel](https://github.com/henrygd/beszel) | Lightweight server monitoring — CPU, memory, disk, network, containers |
 | [Kanidm](https://kanidm.com) | Identity management — SSO/OIDC provider for all services that support it |
+| [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome web UI and Syncthing behind Kanidm SSO |
 
-HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, Yarr, VuIO, Syncthing and other services run as native binaries.
+HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and other services run as native binaries.
 
 ## Prerequisites
 
@@ -53,6 +54,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 | `vaultwarden` | Admin password (plain text, `password` field) + argon2 hash (`admin_token` hidden field) + Gmail app password (`smtp_password` hidden field) |
 | `beszel` | Beszel hub admin email (`username`) + password — seeds the hub UI user and is kept in sync with both the PocketBase superuser and regular user on every deploy |
 | `kanidm` | All fields written by the deploy on first run — create an empty login item named `kanidm`. Populated fields: `admin_password` and `idm_admin_password` (hidden, recovered via `kanidmd recover-account`), `{client}_client_secret` per OIDC client, `{username}_reset_token` per person |
+| `oauth2-proxy` | Empty login item — the deploy generates and stores `cookie_secret` (hidden) on first run; the OIDC `client_secret` lives on the `kanidm` item |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
 ## Setup
@@ -108,6 +110,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `syncthing.yourdomain.com` | Syncthing file sync UI |
 | `metrics.yourdomain.com` | Beszel monitoring dashboard |
 | `idm.yourdomain.com` | Kanidm identity management |
+| `auth.yourdomain.com` | oauth2-proxy SSO gateway (forward-auth — visited via service redirects, not directly) |
 
 ## ntfy mobile app setup
 
@@ -287,11 +290,11 @@ Podman container services get filesystem isolation from the container runtime it
 
 LAN-only services are blocked from reaching the internet via **nftables cgroup-based filtering** (`tasks/network_restrict.py`). This mitigates supply chain attacks where a compromised binary or container image tries to phone home.
 
-**Restricted services:** Audiobookshelf, Navidrome, ntfy, wg-portal, VuIO, Beszel hub, Beszel agent
+**Restricted services:** Audiobookshelf, Navidrome, ntfy, oauth2-proxy, Syncthing, wg-portal, VuIO, Beszel hub, Beszel agent
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
-**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Syncthing (peer sync), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
+**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
 
 Blocked connection attempts are logged to the kernel journal with `BREACH:<service>:` prefix, including the destination IP.
 
