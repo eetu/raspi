@@ -200,7 +200,10 @@ server.shell(
 
         CURRENT_EP=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefEndpoint',''))")
         CURRENT_ADDRS=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Addresses',''))")
-        if [ "$CURRENT_EP" = "$ENDPOINT" ] && echo "$CURRENT_ADDRS" | grep -q "{WIREGUARD["ip6"]}"; then exit 0; fi
+        CURRENT_ALLOWED=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefAllowedIPs',''))")
+        if [ "$CURRENT_EP" = "$ENDPOINT" ] \
+          && echo "$CURRENT_ADDRS" | grep -q "{WIREGUARD["ip6"]}" \
+          && echo "$CURRENT_ALLOWED" | grep -q "0.0.0.0/0"; then exit 0; fi
 
         IFACE=$(echo "$IFACE" | python3 -c "
 import json, sys
@@ -208,6 +211,7 @@ d = json.load(sys.stdin)
 d['Mode'] = 'server'
 d['PeerDefEndpoint'] = '$ENDPOINT'
 d['PeerDefDns'] = ['$DNS']
+d['PeerDefAllowedIPs'] = ['0.0.0.0/0', '::/0']
 addrs = d.get('Addresses', [])
 if '{WIREGUARD["ip6"]}/64' not in addrs:
     addrs.append('{WIREGUARD["ip6"]}/64')
