@@ -78,6 +78,21 @@ HCC = {
     },
 }
 
+# One-shot FMI PV forecast runner. Posts JSON to HCC /api/pv/forecast on a timer.
+# Geographic coverage: Finland, Scandinavia, Baltic states.
+FMI_PV_FORECAST = {
+    "image": "ghcr.io/eetu/fmi-pv-forecast-runner:latest",
+    "schedule": "0/3:00",  # systemd OnCalendar — every 3 hours
+    # Runner env vars. See fmi-pv-forecast-runner README.
+    "env": {
+        "PV_LAT": "-75.0",  # Antarctica placeholder — replace with your site
+        "PV_LON": "0.0",
+        "PV_TILT": "25",  # panel tilt from horizontal (degrees)
+        "PV_AZIMUTH": "180",  # panel azimuth (180 = south)
+        "PV_KW": "5",  # nominal system power
+    },
+}
+
 AUDIOBOOKSHELF = {
     "host": "127.0.0.1",
     "port": 13378,
