@@ -6,7 +6,7 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import CIFS, GATUS, KANIDM_OIDC_CLIENTS, NETWORK, NTFY, UNBOUND
+from group_data.all import CIFS, GATUS, HOSTS, KANIDM_OIDC_CLIENTS, NETWORK, NTFY, UNBOUND
 from tasks.util import resolve_latest
 
 DOMAIN = NETWORK["domain"]
@@ -19,6 +19,11 @@ _image = (
 # or until Kanidm has generated the client secret on a previous deploy.
 _oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
 _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+
+# NAS healthcheck host — resolve via HOSTS dict so the gatus container's
+# isolated /etc/hosts doesn't have to know the NAS hostname.
+_nas_host_raw = CIFS["audiobooks"]["share"].split("/")[2]
+_nas_host = HOSTS.get(_nas_host_raw, _nas_host_raw)
 
 _config_yaml = f"""\
 alerting:
@@ -144,7 +149,7 @@ endpoints:
       - type: ntfy
 
   - name: NAS
-    url: "icmp://{CIFS["audiobooks"]["share"].split("/")[2]}"
+    url: "icmp://{_nas_host}"
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
