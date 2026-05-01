@@ -11,6 +11,7 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [WireGuard](https://www.wireguard.com) + [wg-portal](https://github.com/h44z/wg-portal) | VPN for secure access from outside the LAN |
 | [Traefik](https://traefik.io) | Reverse proxy with automatic HTTPS (wildcard cert via Let's Encrypt + Cloudflare DNS) |
 | [HCC](https://github.com/eetu/hcc) | Home control dashboard |
+| [fmi-pv-forecast-runner](https://github.com/eetu/fmi-pv-forecast-runner) | One-shot timer (every 3h) — fetches FMI PV forecast and POSTs to HCC `/api/pv/forecast` |
 | [Audiobookshelf](https://www.audiobookshelf.org) | Audiobook server, reads from NAS over CIFS |
 | [Navidrome](https://www.navidrome.org) | Music streaming server, reads from NAS over CIFS |
 | [Yarr](https://github.com/nkanaev/yarr) | Self-hosted RSS reader |
@@ -36,11 +37,15 @@ HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel 
 
 ## Secrets
 
-All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them locally at deploy time and writes them to `/etc/secrets/` on the Pi. Nothing sensitive is committed to this repo.
+All API tokens and credentials are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them locally at deploy time and writes them to `/etc/secrets/` on the Pi.
+
+Non-secret service config (ports, hostnames, base URLs, room layouts, PV system params, etc.) lives in `group_data/all.py`, which is gitignored. Per-service env files merge BW-sourced secrets (`/etc/secrets/{svc}.env`, loaded via `EnvironmentFile=`) with inline plain config from `all.py` (rendered as `Environment=` lines in the unit/quadlet).
+
+For HCC, the `secret_env` dict in `all.py` maps each env var name to its hidden field on the BW `hcc` item — explicit, reviewable, and easy to audit when adding new integrations.
 
 | Bitwarden item | Contains |
 |---|---|
-| `hcc` | HCC environment variables (API keys, Hue bridge, room config) |
+| `hcc` | One hidden field per `HCC["secret_env"]` value in `all.py` (e.g. `tomorrow_io_api_key`, `solis_key_id`, `solis_key_secret`, `hue_bridge_user`) |
 | `pihole` | Pi-hole admin password |
 | `cifs` | NAS share credentials — per-share fields: `{share}_username`, `{share}_password` (hidden), keyed by CIFS dict entries in `all.py` |
 | `audiobookshelf` | ABS admin credentials (`login`), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
@@ -61,7 +66,7 @@ All secrets are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them
 **1. Configure**
 
 ```sh
-cp group_data/all.example.py group_data/all.py   # fill in IPs, domain, NAS share
+cp group_data/all.example.py group_data/all.py   # fill in IPs, domain, NAS share, HCC config, PV system params
 cp inventory.example.py inventory.py              # fill in SSH host and key path
 ```
 
@@ -306,7 +311,7 @@ LAN-only services are blocked from reaching the internet via **nftables cgroup-b
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
-**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Hue discovery).
+**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Tomorrow.io, SolisCloud, Hue discovery), fmi-pv-forecast (FMI open data).
 
 Blocked connection attempts are logged to the kernel journal with `BREACH:<service>:` prefix, including the destination IP.
 

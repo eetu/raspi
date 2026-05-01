@@ -72,6 +72,30 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
 - [ ] Bitwarden — create item in `raspi` folder before deploying
 
+## Secrets handling — AI assistants read this
+
+**Do NOT read secret values into your context.** Two locations contain live credentials:
+
+- `group_data/all.py` (local, gitignored) — has API keys inline in `HCC["env"]`, `NETWORK`, etc.
+- `/etc/secrets/*` on the Pi (over `ssh raspi`) — env files written by `tasks/secrets.py`.
+
+**Banned operations** (these dump plaintext into the conversation transcript):
+- `Read` on `group_data/all.py` or any `/etc/secrets/*` file
+- `ssh raspi sudo cat /etc/secrets/...`
+- `ssh raspi sudo grep ... /etc/secrets/...`
+- `ssh raspi -- env` after sourcing a secret file
+- Any `echo $SECRET_VAR`, `printenv FOO`, `set | grep ...` that surfaces a value
+
+**Allowed operations** (secret stays inside the shell, never echoed):
+- `ssh raspi sudo systemctl restart <svc>` / `status` / `journalctl -u <svc>` (provided the service doesn't log its own secrets)
+- `ssh raspi sudo systemd-run --pipe --quiet --property=EnvironmentFile=/etc/secrets/foo.env -- curl -fsS -H "Authorization: Bearer $TOKEN" https://...`
+- `ssh raspi 'sudo bash -c ". /etc/secrets/foo.env && curl ... > /tmp/out"'` then read `/tmp/out` (only if output is not the secret itself)
+- `ssh raspi sudo ls -la /etc/secrets/` (filenames only, no contents)
+- `ssh raspi sudo stat /etc/secrets/foo.env` (size/mode/mtime, no contents)
+- `ssh raspi sudo sha256sum /etc/secrets/foo.env` (hash for change detection)
+
+Rule of thumb: it's fine to *use* a secret in a remote command, never to *transport* it into the assistant's context.
+
 ## Secrets (Bitwarden)
 
 Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the full item list and field structure. The `BW_SESSION` env var must be set before deploy — pyinfra fetches secrets locally at deploy time and writes them to `/etc/secrets/` on the Pi (never committed to git).

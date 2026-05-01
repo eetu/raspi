@@ -1,11 +1,18 @@
 import hashlib
 import io
+import re
 
 from pyinfra import host
-from pyinfra.facts.server import Command
+from pyinfra.facts.server import Command, KernelVersion
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import NETWORK, WIREGUARD
+
+
+def _kver_tuple(v: str) -> tuple[int, int, int]:
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", v or "")
+    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
 
 # --- traefik system user (created early so secrets.py can assign group ownership) ---
 
@@ -90,6 +97,53 @@ files.put(
     group="root",
     mode="644",
 )
+
+# RPi kernel updates ship in `stable` not `security` — extend the allowlist
+# and enable automatic reboot at 04:00 so kernel CVE fixes actually apply.
+files.put(
+    name="Allow Raspberry Pi archive in unattended-upgrades",
+    src="files/52unattended-upgrades-rpi",
+    dest="/etc/apt/apt.conf.d/52unattended-upgrades-rpi",
+    user="root",
+    group="root",
+    mode="644",
+)
+
+# CVE-2026-31431 ("CopyFail") — algif_aead LPE. Fixed in mainline 6.12.85.
+# Blacklist the module on older kernels; auto-remove the blacklist once the
+# running kernel is patched. None of our services use AF_ALG kernel crypto,
+# so disabling the module is harmless.
+_CVE_FIX_KVER = (6, 12, 85)
+_kver = host.get_fact(KernelVersion)
+_needs_aead_blacklist = _kver_tuple(_kver) < _CVE_FIX_KVER
+
+if _needs_aead_blacklist:
+    files.put(
+        name="CVE-2026-31431: blacklist algif_aead",
+        src=io.BytesIO(
+            (
+                "# CVE-2026-31431 (CopyFail) — remove once kernel >= 6.12.85.\n"
+                "# `blacklist` alone only blocks alias-driven autoload; `install`\n"
+                "# with /bin/false makes any modprobe attempt fail outright.\n"
+                "blacklist algif_aead\n"
+                "install algif_aead /bin/false\n"
+            ).encode()
+        ),
+        dest="/etc/modprobe.d/cve-2026-31431.conf",
+        user="root",
+        group="root",
+        mode="644",
+    )
+    server.shell(
+        name="CVE-2026-31431: unload algif_aead if loaded",
+        commands=["modprobe -r algif_aead 2>/dev/null || true"],
+    )
+else:
+    files.file(
+        name="CVE-2026-31431: remove blacklist (kernel patched)",
+        path="/etc/modprobe.d/cve-2026-31431.conf",
+        present=False,
+    )
 
 # --- ufw ---
 

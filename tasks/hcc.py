@@ -1,11 +1,31 @@
-"""HCC: Podman Quadlet container unit."""
+"""HCC: Podman Quadlet container unit, plus FMI PV forecast runner timer."""
 
 import hashlib
 import io
+import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import HCC
+from group_data.all import FMI_PV_FORECAST, HCC
+
+_base_env = {
+    "PORT": str(HCC["port"]),
+    "HOSTNAME": HCC["host"],
+    "HCC_DB_PATH": "/data/hcc.db",
+}
+
+
+def _env_line(k: str, v) -> str:
+    # Non-strings (dicts/lists/numbers/bools) → compact JSON. systemd.exec(5):
+    # Environment= splits on whitespace unless value is double-quoted; inside
+    # the quotes \" and \\ are the only escapes.
+    if not isinstance(v, str):
+        v = json.dumps(v, ensure_ascii=False)
+    escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+    return f'Environment="{k}={escaped}"'
+
+
+_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HCC["env"]}.items())
 
 quadlet = f"""\
 [Unit]
@@ -17,9 +37,7 @@ Wants=network-online.target
 ContainerName=hcc
 Image={HCC["image"]}
 Network=host
-Environment=PORT={HCC["port"]}
-Environment=HOSTNAME={HCC["host"]}
-Environment=HCC_DB_PATH=/data/hcc.db
+{_env_lines}
 EnvironmentFile=/etc/secrets/hcc.env
 Volume=/var/lib/hcc:/data
 AutoUpdate=registry
@@ -117,4 +135,65 @@ server.shell(
         fi
         """,
     ],
+)
+
+# --- FMI PV forecast runner: oneshot service + timer ---------------------------
+# Runs ghcr.io/eetu/fmi-pv-forecast-runner, pipes JSON to HCC POST /api/pv/forecast.
+
+_pv_env_flags = " ".join(f"-e {k}={v}" for k, v in FMI_PV_FORECAST["env"].items())
+
+_pv_runner_script = f"""\
+#!/bin/bash
+set -euo pipefail
+# --network=host: default bridge net can't reach Pi-hole on host loopback for DNS.
+podman run --rm --pull=newer --network=host {_pv_env_flags} \\
+  {FMI_PV_FORECAST["image"]} \\
+| curl -fsS -X POST -H 'Content-Type: application/json' \\
+       --data-binary @- http://{HCC["host"]}:{HCC["port"]}/api/pv/forecast
+"""
+
+_pv_service_unit = """\
+[Unit]
+Description=FMI PV forecast runner — fetch and POST to HCC
+After=network-online.target hcc.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fmi-pv-forecast-run.sh
+"""
+
+_pv_timer_unit = f"""\
+[Unit]
+Description=Periodic FMI PV forecast refresh
+
+[Timer]
+OnCalendar={FMI_PV_FORECAST["schedule"]}
+OnBootSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+for dest, content, mode in [
+    ("/usr/local/bin/fmi-pv-forecast-run.sh", _pv_runner_script, "755"),
+    ("/etc/systemd/system/fmi-pv-forecast.service", _pv_service_unit, "644"),
+    ("/etc/systemd/system/fmi-pv-forecast.timer", _pv_timer_unit, "644"),
+]:
+    files.put(
+        name=f"Write {dest.split('/')[-1]}",
+        src=io.BytesIO(content.encode()),
+        dest=dest,
+        user="root",
+        group="root",
+        mode=mode,
+    )
+
+systemd.service(
+    name="Enable fmi-pv-forecast.timer",
+    service="fmi-pv-forecast.timer",
+    enabled=True,
+    running=True,
+    daemon_reload=True,
 )

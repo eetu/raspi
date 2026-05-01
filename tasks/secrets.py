@@ -5,7 +5,7 @@ import io
 from pyinfra.operations import files
 
 import vault as bw
-from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETWORK
+from group_data.all import CIFS, HCC, KANIDM_OIDC_CLIENTS, NETWORK
 
 
 def _put_secret(name, content, dest, mode="600", group="root"):
@@ -19,7 +19,10 @@ def _put_secret(name, content, dest, mode="600", group="root"):
     )
 
 
-_put_secret("hcc.env", bw.hcc_env(), "/etc/secrets/hcc.env")
+_hcc_secret_lines = [
+    f"{var}={bw.bw_field('hcc', field)}" for var, field in HCC["secret_env"].items()
+]
+_put_secret("hcc.env", "\n".join(_hcc_secret_lines) + "\n", "/etc/secrets/hcc.env")
 
 for _name in CIFS:
     _put_secret(f"cifs-{_name}", bw.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
