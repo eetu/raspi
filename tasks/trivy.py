@@ -40,13 +40,16 @@ set -euo pipefail
 
 NTFY_URL="{NTFY_URL}"
 CACHE_DIR=/var/lib/trivy/cache
+# /tmp is a 32M tmpfs — point trivy at the SD-backed dir for DB downloads.
+export TMPDIR=/var/lib/trivy/tmp
 export XDG_RUNTIME_DIR=/run
 export DOCKER_HOST=unix:///run/podman/podman.sock
 
+# Drop --quiet so DB freshness/version lands in the journal — useful to
+# diagnose silent-alert situations after a long gap between scans.
 /usr/local/bin/trivy image \\
     --cache-dir "$CACHE_DIR" \\
-    --download-db-only \\
-    --quiet
+    --download-db-only
 
 for image in $(podman ps --format "{{{{.Image}}}}" | sort -u); do
     json=$(/usr/local/bin/trivy image \\
@@ -151,10 +154,10 @@ ExecStart=/usr/local/bin/trivy-cve-scan.sh
 
 cve_timer = """\
 [Unit]
-Description=Weekly Trivy CVE scan
+Description=Twice-weekly Trivy CVE scan
 
 [Timer]
-OnCalendar=weekly
+OnCalendar=Mon,Thu *-*-* 02:00:00
 Persistent=true
 RandomizedDelaySec=3600
 
