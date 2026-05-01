@@ -2,10 +2,30 @@
 
 import hashlib
 import io
+import json
 
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import HCC
+
+_base_env = {
+    "PORT": str(HCC["port"]),
+    "HOSTNAME": HCC["host"],
+    "HCC_DB_PATH": "/data/hcc.db",
+}
+
+
+def _env_line(k: str, v) -> str:
+    # Non-strings (dicts/lists/numbers/bools) → compact JSON. systemd.exec(5):
+    # Environment= splits on whitespace unless value is double-quoted; inside
+    # the quotes \" and \\ are the only escapes.
+    if not isinstance(v, str):
+        v = json.dumps(v, ensure_ascii=False)
+    escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+    return f'Environment="{k}={escaped}"'
+
+
+_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HCC["env"]}.items())
 
 quadlet = f"""\
 [Unit]
@@ -17,9 +37,7 @@ Wants=network-online.target
 ContainerName=hcc
 Image={HCC["image"]}
 Network=host
-Environment=PORT={HCC["port"]}
-Environment=HOSTNAME={HCC["host"]}
-Environment=HCC_DB_PATH=/data/hcc.db
+{_env_lines}
 EnvironmentFile=/etc/secrets/hcc.env
 Volume=/var/lib/hcc:/data
 AutoUpdate=registry

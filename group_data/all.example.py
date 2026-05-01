@@ -50,6 +50,32 @@ HCC = {
     "host": "127.0.0.1",
     "port": 3000,
     "image": "ghcr.io/eetu/hcc:main",
+    # Plain config env vars. See hcc/backend/src/settings.rs.
+    # Non-string values (dicts, lists, numbers, bools) are compact-JSON-serialized
+    # at deploy time — keep structured config readable here.
+    "env": {
+        "LANGUAGE": "fi",
+        "TOMORROW_IO_BASE_URL": "https://api.tomorrow.io",
+        "FMI_BASE_URL": "https://opendata.fmi.fi/wfs",
+        "HUE_BRIDGE_ADDRESS": "",
+        "HUE_ROOM_TYPES": {
+            "inside": [],
+            "inside_cold": [],
+            "outside": [],
+        },
+        "HCC_HISTORY_RETENTION_DAYS": "0",
+        "SOLIS_STATION_ID": "",
+        "SOLIS_BASE_URL": "https://www.soliscloud.com:13333",
+    },
+    # Secrets sourced from Bitwarden item `hcc`. Map: env var name -> BW field name.
+    # Each entry must exist as a hidden field on the BW item before deploy.
+    # tasks/secrets.py writes these to /etc/secrets/hcc.env at deploy time.
+    "secret_env": {
+        "TOMORROW_IO_API_KEY": "tomorrow_io_api_key",
+        "HUE_BRIDGE_USER": "hue_bridge_user",
+        "SOLIS_KEY_ID": "solis_key_id",
+        "SOLIS_KEY_SECRET": "solis_key_secret",
+    },
 }
 
 AUDIOBOOKSHELF = {

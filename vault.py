@@ -9,7 +9,9 @@ Item structure in the 'raspi' folder:
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
   asus-router              SSH key item        (uses Bitwarden SSH key type)
-  hcc               secure note (notes = env file contents)
+  hcc               login  (unused)            fields: one hidden field per HCC["secret_env"]
+                                               value in group_data/all.py (e.g. tomorrow_io_api_key,
+                                               solis_key_id, solis_key_secret, hue_bridge_user)
   pihole            login  password=admin_password
   dockerhub         login  username/password   (personal access token from hub.docker.com/settings/security)
   vaultwarden       login  password=admin_password (plain text, for logging in)
@@ -101,8 +103,13 @@ def _fields(item_name) -> dict:
     return {f["name"]: f["value"] for f in (item.get("fields") or [])}
 
 
-def hcc_env() -> str:
-    return (_get_item("hcc")["notes"] or "").strip() + "\n"
+def bw_field(item: str, field: str) -> str:
+    """Return a single hidden/text field from a Bitwarden item, or empty string.
+
+    Used by tasks that map a service env var name to a BW field name via the
+    `secret_env` dict in `group_data/all.py` (see HCC for the canonical example).
+    """
+    return _fields(item).get(field, "") or ""
 
 
 def pihole_password() -> str:
