@@ -91,6 +91,17 @@ files.put(
     mode="644",
 )
 
+# RPi kernel updates ship in `stable` not `security` — extend the allowlist
+# and enable automatic reboot at 04:00 so kernel CVE fixes actually apply.
+files.put(
+    name="Allow Raspberry Pi archive in unattended-upgrades",
+    src="files/52unattended-upgrades-rpi",
+    dest="/etc/apt/apt.conf.d/52unattended-upgrades-rpi",
+    user="root",
+    group="root",
+    mode="644",
+)
+
 # --- ufw ---
 
 _ufw_rules = (

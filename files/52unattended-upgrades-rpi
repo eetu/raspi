@@ -1,0 +1,12 @@
+// Append Raspberry Pi Foundation archive to the unattended-upgrades allowlist.
+// RPi's apt repo has no `security` pocket — kernel CVE fixes always ship via
+// `stable`. Without this file, RPi kernel patches are never auto-installed.
+// The double-colon syntax appends to the list defined in 50unattended-upgrades.
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Raspberry Pi Foundation,codename=${distro_codename}";
+};
+
+// Apply pending kernel upgrades by rebooting at 04:00 if needed.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
