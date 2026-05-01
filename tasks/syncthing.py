@@ -162,7 +162,7 @@ server.shell(
     commands=[
         f"""
         python3 << 'PYEOF'
-import json, time, urllib.request, xml.etree.ElementTree as ET
+import http.client, json, time, urllib.request, xml.etree.ElementTree as ET
 user = {_user_json}
 pw = {_pw_json}
 tree = ET.parse("/var/lib/syncthing/config.xml")
@@ -179,7 +179,12 @@ gui = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/rest/con
 gui["user"] = user
 gui["password"] = pw
 req = urllib.request.Request(base + "/rest/config/gui", data=json.dumps(gui).encode(), headers=headers, method="PUT")
-urllib.request.urlopen(req)
+# PUT /rest/config/gui restarts the GUI listener immediately, so the response
+# is dropped — RemoteDisconnected here means the change was accepted.
+try:
+    urllib.request.urlopen(req)
+except http.client.RemoteDisconnected:
+    pass
 print("syncthing: GUI credentials synced")
 PYEOF
         """,
