@@ -32,12 +32,6 @@ RESTRICTED = [
     "vuio",
 ]
 
-_drop_rules = "\n".join(
-    f'        socket cgroupv2 level 2 "system.slice/{svc}.service"'
-    f' log prefix "BREACH:{svc}: " counter drop'
-    for svc in RESTRICTED
-)
-
 nft_rules = f"""\
 table inet service_restrict {{
     chain output {{
@@ -54,10 +48,27 @@ table inet service_restrict {{
         ip daddr 255.255.255.255 udp dport 21027 accept
         ip6 daddr ff12::8384 udp dport 21027 accept
 
-        # Block and log restricted services reaching outside LAN
-{_drop_rules}
+        # Per-service drop rules added at runtime by service-restrict-add-rules.sh
+        # (a service must be active for its cgroup path to resolve at rule-load time).
     }}
 }}
+"""
+
+_RESTRICTED_BASH_LIST = " ".join(RESTRICTED)
+
+_add_rules_script = f"""\
+#!/bin/bash
+# Add per-service drop rules into the service_restrict table. nft refuses to
+# load a `socket cgroupv2 level 2 "system.slice/<svc>.service"` rule when the
+# cgroup does not exist, so we add each rule independently and skip services
+# whose cgroup is absent (service stopped). Re-running this script after a
+# service comes up retroactively installs its rule.
+set -u
+for svc in {_RESTRICTED_BASH_LIST}; do
+  if [ -d "/sys/fs/cgroup/system.slice/$svc.service" ]; then
+    nft "add rule inet service_restrict output socket cgroupv2 level 2 \\"system.slice/$svc.service\\" log prefix \\"BREACH:$svc: \\" counter drop" 2>/dev/null || true
+  fi
+done
 """
 
 _boot_service = """\
@@ -70,13 +81,14 @@ Before=network-online.target
 Type=oneshot
 ExecStart=/usr/sbin/modprobe nft_socket
 ExecStart=/usr/sbin/nft -f /etc/nftables.d/service-restrict.nft
+ExecStart=/usr/local/bin/service-restrict-add-rules.sh
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 """
 
-_rules_hash = hashlib.sha256((nft_rules + _boot_service).encode()).hexdigest()
+_rules_hash = hashlib.sha256((nft_rules + _add_rules_script + _boot_service).encode()).hexdigest()
 
 files.directory(
     name="Create /etc/nftables.d",
@@ -105,6 +117,15 @@ files.put(
     mode="644",
 )
 
+files.put(
+    name="Write service-restrict-add-rules.sh",
+    src=io.BytesIO(_add_rules_script.encode()),
+    dest="/usr/local/bin/service-restrict-add-rules.sh",
+    user="root",
+    group="root",
+    mode="755",
+)
+
 # Ensure nft_socket kernel module loads at boot
 files.put(
     name="Load nft_socket module at boot",
@@ -131,6 +152,7 @@ server.shell(
           modprobe nft_socket 2>/dev/null || true
           nft delete table inet service_restrict 2>/dev/null || true
           nft -f /etc/nftables.d/service-restrict.nft
+          /usr/local/bin/service-restrict-add-rules.sh
           echo '{_rules_hash}' > "$STAMP"
         fi
         """,
