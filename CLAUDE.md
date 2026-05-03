@@ -69,6 +69,7 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
 - [ ] `tasks/cloudflare_dns.py` — add subdomain to the list in `configure_dns()` (if web-accessible)
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
+- [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
 - [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
 - [ ] Bitwarden — create item in `raspi` folder before deploying
 
@@ -145,6 +146,14 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 - Dynamic config: `/etc/traefik/dynamic/services.yaml` (file provider, hot-reload)
 - All services bind to `127.0.0.1:{port}` — Traefik is the only public listener
 - Adding a service: add router + service block to `dynamic_yaml` in `tasks/traefik.py`
+
+## Backups (restic)
+
+`tasks/restic.py` snapshots service state from `RESTIC["paths"]` to an encrypted repository on the `backups` CIFS share. Daily timer at 03:30 (`raspi-backup.timer`); weekly prune at Sun 04:30 (`raspi-prune.timer`, repo lock declared via `Conflicts=raspi-backup.service` so they cannot overlap, ntfy alert on failure). Repo password lives in the `restic` BW item.
+
+When adding a service with persistent state, append `/var/lib/{service}` to `RESTIC["paths"]` so future blank-slate restores cover it. Add regenerable subdirectories (caches, derived artwork, search indexes) to `RESTIC["excludes"]` to keep snapshots small and avoid overflowing tmpfs `/tmp` during packing.
+
+**Restore-on-blank** runs at deploy time before any service starts. Triggered either interactively (blank Pi + repo present + TTY) or via `RESTORE=true` env var (cold-start case where the NAS share isn't mounted at plan time yet). Idempotent — `/var/lib/.restic-restored` stamp file blocks subsequent restores until removed.
 
 ## Ports in use
 

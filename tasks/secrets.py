@@ -7,6 +7,11 @@ from pyinfra.operations import files
 import vault as bw
 from group_data.all import CIFS, HCC, KANIDM_OIDC_CLIENTS, NETWORK
 
+try:
+    from group_data.all import RESTIC
+except ImportError:
+    RESTIC = None
+
 
 def _put_secret(name, content, dest, mode="600", group="root"):
     files.put(
@@ -87,4 +92,18 @@ if _op_client_secret:
         f"OAUTH2_PROXY_CLIENT_SECRET={_op_client_secret}\n"
         f"OAUTH2_PROXY_COOKIE_SECRET={bw.oauth2_proxy_cookie_secret()}\n",
         "/etc/secrets/oauth2-proxy.env",
+    )
+
+# --- restic ---
+# Sourced by /usr/local/sbin/raspi-backup; password may contain special chars
+# so single-quote-escape it for `source` to handle correctly.
+if RESTIC is not None and CIFS.get("backups"):
+    _restic_pw = bw.restic_password().replace("'", "'\\''")
+    _restic_repo = f"{CIFS['backups']['mountpoint']}/raspi-restic"
+    _put_secret(
+        "restic.env",
+        f"RESTIC_PASSWORD='{_restic_pw}'\n"
+        f"RESTIC_REPOSITORY='{_restic_repo}'\n"
+        f"RESTIC_CACHE_DIR='/var/cache/restic'\n",
+        "/etc/secrets/restic.env",
     )

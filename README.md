@@ -23,7 +23,8 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
 | [Beszel](https://github.com/henrygd/beszel) | Lightweight server monitoring — CPU, memory, disk, network, containers |
 | [Kanidm](https://kanidm.com) | Identity management — SSO/OIDC provider for all services that support it |
-| [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome web UI and Syncthing behind Kanidm SSO |
+| [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome and Syncthing behind Kanidm SSO |
+| [restic](https://restic.net) | Encrypted incremental backups of service state to the NAS, with one-shot restore on a fresh Pi |
 
 HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and other services run as native binaries.
 
@@ -59,6 +60,7 @@ For HCC, the `secret_env` dict in `all.py` maps each env var name to its hidden 
 | `beszel` | Beszel hub admin email (`username`) + password — seeds the hub UI user and is kept in sync with both the PocketBase superuser and regular user on every deploy |
 | `kanidm` | All fields written by the deploy on first run — create an empty login item named `kanidm`. Populated fields: `admin_password` and `idm_admin_password` (hidden, recovered via `kanidmd recover-account`), `{client}_client_secret` per OIDC client, `{username}_reset_token` per person |
 | `oauth2-proxy` | Empty login item — the deploy generates and stores `cookie_secret` (hidden) on first run; the OIDC `client_secret` lives on the `kanidm` item |
+| `restic` | Repository encryption password (`password` field) — load-bearing; losing this means every snapshot is permanently unreadable |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
 ## Setup
@@ -240,12 +242,13 @@ OIDC is fully optional — services that aren't in `KANIDM_OIDC_CLIENTS` deploy 
 
 Services that don't support Kanidm OIDC directly are gated via oauth2-proxy running at `auth.{domain}`. Traefik's `forwardAuth` middleware redirects unauthenticated requests to the Kanidm login page; after login the session cookie (scoped to `.{domain}`) is shared across all gated subdomains.
 
-**Gated services:** Pi-hole, Yarr, Navidrome web UI, Syncthing
+**Gated services:** Pi-hole, Yarr, Navidrome (web UI + Subsonic API), Syncthing
 
 **Exempted paths (no auth required):**
-- Navidrome Subsonic API (`/rest`, `/share`) — mobile clients use native username/password
 - Pi-hole `/api/info/version` — used by Gatus uptime checks
 - Syncthing `/rest/noauth/health` — used by Gatus uptime checks
+
+Subsonic clients reach Navidrome via the IAP/SSO browser flow (e.g. Flo's "Login with IAP") — they complete the Kanidm login in a webview and reuse the resulting cookie for `/rest` calls. When `oauth2-proxy` is not configured for the deployment, Navidrome's music router runs without middleware and the deploy bootstraps an admin user from the `navidrome` Bitwarden item so plain Subsonic clients can log in with username/password.
 
 No manual setup needed — oauth2-proxy is fully provisioned by the deploy (binary, config, systemd unit, Kanidm OIDC client, cookie secret in Bitwarden).
 
@@ -363,6 +366,42 @@ Run manually:
 ```sh
 sudo /usr/local/bin/check-versions.sh
 ```
+
+## Backups and disaster recovery
+
+Service state (Vaultwarden DB, Kanidm DB, Navidrome library/playlists, Yarr feeds, Audiobookshelf metadata, Syncthing index, wg-portal DB, Beszel hub DB, Traefik `acme.json`) is snapshotted to the NAS as an **encrypted, deduplicated, incremental** restic repository. Music/audiobooks/movies are not backed up — they already live on the NAS.
+
+**Schedule**
+
+- Daily backup — runs at 03:30 with 15-minute jitter, takes ~15 seconds for a delta snapshot, peaks ~150MB RAM. Drives a `restic forget` afterwards to enforce retention (`{daily: 7, weekly: 4, monthly: 6}` by default).
+- Weekly prune — runs Sunday 04:30 with `--max-unused 100M` to bound RAM use, locks the repo (declared `Conflicts=raspi-backup.service` so the two timers can never overlap), and runs a 5%-data-pack `restic check` to detect bit-rot on the NAS. ntfy alerts on failure.
+
+**Configuration** lives under `RESTIC` in `group_data/all.py`: paths to back up, paths to exclude (default excludes Navidrome's regenerable cache + artwork dirs), retention, schedules, prune cap. Removing the `RESTIC` dict from `all.py` opts the host out — `tasks/restic.py` becomes a no-op.
+
+**Storage** — the `backups` CIFS share (configured in `CIFS["backups"]`) is mounted via systemd automount; credentials come from the standard `cifs` Bitwarden item using `backups_username` / `backups_password` fields. The encryption password is a separate, load-bearing secret on a dedicated `restic` Bitwarden item.
+
+**Restore on a blank Pi**
+
+After re-flashing the SD card, the deploy can restore the latest snapshot before any service starts up:
+
+- **Cold start (NAS share not yet mounted at plan time)** — set the env var:
+  ```fish
+  set -x BW_SESSION (bw unlock --raw)
+  RESTORE=true uv run pyinfra inventory.py deploy.py
+  ```
+- **Re-bootstrap with the share already mounted from a prior deploy** — the deploy detects `/var/lib/vaultwarden` missing AND a repo present at `/mnt/backups/raspi-restic`, then prompts interactively before queuing the restore step.
+
+A `/var/lib/.restic-restored` stamp file makes the operation idempotent — subsequent deploys never restore again unless the stamp is removed.
+
+**Manual operations** — when you want to inspect or operate on the repo from the Pi:
+
+```sh
+sudo bash -c '. /etc/secrets/restic.env; restic snapshots'
+sudo bash -c '. /etc/secrets/restic.env; restic stats'
+sudo bash -c '. /etc/secrets/restic.env; restic restore <snapshot-id> --target /tmp/restored'
+```
+
+For ad-hoc work that needs more RAM than the Pi can spare, mount the same share from your laptop and run `restic` against it directly — the encryption password from Bitwarden is the only thing required.
 
 ## Re-deploying
 
