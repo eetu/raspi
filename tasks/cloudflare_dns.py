@@ -77,6 +77,7 @@ def configure_dns(state=None, host=None):
         "vault",
         "rss",
         "music",
+        "memo",
         "syncthing",
         "metrics",
         "idm",

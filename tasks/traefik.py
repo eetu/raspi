@@ -13,6 +13,7 @@ from group_data.all import (
     HCC,
     KANIDM,
     KANIDM_OIDC_CLIENTS,
+    MEMOS,
     NAVIDROME,
     NETWORK,
     NTFY,
@@ -246,6 +247,14 @@ http:
       tls:
         certResolver: cloudflare
 
+    # No oauth2-chain — Memos handles its own auth (Kanidm OIDC + local user).
+    memo:
+      rule: "Host(`memo.{DOMAIN}`)"
+      service: memo
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
     # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
     syncthing-monitor:
       rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
@@ -347,6 +356,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
+
+    memo:
+      loadBalancer:
+        servers:
+          - url: "http://{MEMOS["host"]}:{MEMOS["port"]}"
 
     syncthing:
       loadBalancer:

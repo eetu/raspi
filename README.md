@@ -18,6 +18,7 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [ntfy](https://ntfy.sh) | Self-hosted push notification server |
 | [Gatus](https://github.com/TwiN/gatus) | Service monitoring and status page |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
+| [Memos](https://www.usememos.com) | Lightweight self-hosted markdown note / memo service with Kanidm SSO |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 | [Syncthing](https://syncthing.net) | Peer-to-peer file synchronization |
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
@@ -51,6 +52,7 @@ For HCC, the `secret_env` dict in `all.py` maps each env var name to its hidden 
 | `cifs` | NAS share credentials — per-share fields: `{share}_username`, `{share}_password` (hidden), keyed by CIFS dict entries in `all.py` |
 | `audiobookshelf` | ABS admin credentials (`login`), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
 | `navidrome` | Navidrome admin credentials (`login`) |
+| `memos` | Memos HOST/admin bootstrap credentials (`login`) — first POST to `/api/v1/users` makes them HOST; kept as fallback for non-SSO admin login |
 | `syncthing` | Syncthing web UI credentials (`login`) |
 | `wireguard-portal` | wg-portal admin credentials |
 | `wireguard-server-key` | WireGuard server keypair (generated on first deploy) |
@@ -113,6 +115,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 | `ntfy.yourdomain.com` | Push notification server |
 | `status.yourdomain.com` | Gatus status page |
 | `vault.yourdomain.com` | Vaultwarden password vault |
+| `memo.yourdomain.com` | Memos notes |
 | `syncthing.yourdomain.com` | Syncthing file sync UI |
 | `metrics.yourdomain.com` | Beszel monitoring dashboard |
 | `idm.yourdomain.com` | Kanidm identity management |

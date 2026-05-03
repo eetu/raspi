@@ -45,7 +45,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Kanidm)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Memos, Kanidm)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -62,8 +62,8 @@ When planning a new service, look for opportunities to clean up existing code th
 
 ## Adding a new service — checklist
 
-- [ ] `group_data/all.py` — add config dict (host, port, version/image)
-- [ ] `group_data/all.example.py` — mirror the same dict with placeholder values
+- [ ] `group_data/all.example.py` — add config dict (host, port, version/image)
+- [ ] `group_data/all.py` — mirror the same change verbatim (the file holds no secret values; AI assistants may edit it directly)
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
 - [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
@@ -75,17 +75,20 @@ When planning a new service, look for opportunities to clean up existing code th
 
 ## Secrets handling — AI assistants read this
 
-**Do NOT read secret values into your context.** Two locations contain live credentials:
-
-- `group_data/all.py` (local, gitignored) — has API keys inline in `HCC["env"]`, `NETWORK`, etc.
-- `/etc/secrets/*` on the Pi (over `ssh raspi`) — env files written by `tasks/secrets.py`.
+**Do NOT read secret values into your context.** All live credentials are in
+`/etc/secrets/*` on the Pi (env files written by `tasks/secrets.py`) and in
+the Bitwarden `raspi` folder. `group_data/all.py` itself contains only
+non-secret config plus references to BW field names (e.g. the `secret_env`
+dict in `HCC` maps env var → BW field name) — it is safe to read and to edit
+when mirroring additions made to `group_data/all.example.py`.
 
 **Banned operations** (these dump plaintext into the conversation transcript):
-- `Read` on `group_data/all.py` or any `/etc/secrets/*` file
 - `ssh raspi sudo cat /etc/secrets/...`
 - `ssh raspi sudo grep ... /etc/secrets/...`
 - `ssh raspi -- env` after sourcing a secret file
 - Any `echo $SECRET_VAR`, `printenv FOO`, `set | grep ...` that surfaces a value
+- Reading raw values from `bw get item ...` (filenames, field *names*, and
+  `bw status`/membership checks are fine — values are not)
 
 **Allowed operations** (secret stays inside the shell, never echoed):
 - `ssh raspi sudo systemctl restart <svc>` / `status` / `journalctl -u <svc>` (provided the service doesn't log its own secrets)
@@ -163,6 +166,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 3000 | HCC |
 | 3001 | Gatus |
 | 4533 | Navidrome |
+| 5230 | Memos |
 | 5335 | Unbound (DNS) |
 | 7070 | Yarr |
 | 8384 | Syncthing web UI |
