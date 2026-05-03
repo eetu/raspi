@@ -136,11 +136,41 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 
 ## SSO/OIDC (Kanidm)
 
-`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. To wire a new service into SSO:
+`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. **Two-deploy bootstrap is the canonical flow** for any new service that needs the Kanidm client secret: deploy 1 registers the client in Kanidm and writes the generated secret to BW; deploy 2 reads the secret out of BW and wires it into the service. Both deploys are otherwise idempotent.
 
-1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support it)
+To wire a new service into SSO:
+
+1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support it). Mirror the change to `group_data/all.example.py`.
 2. In the service task, look up the entry with `KANIDM_OIDC_CLIENTS.get(name)` and only configure SSO when both the entry exists *and* `bw.kanidm_oidc_secret(...)` returns non-empty. This keeps OIDC truly optional — removing the entry (or starting with an empty dict) deploys the service without SSO; the empty-secret guard also handles the first deploy where the secret hasn't been generated yet.
-3. First deploy generates the secret in Kanidm and saves it to BW; second deploy propagates it to the service's env file.
+3. Place the `local.include("tasks/{service}.py")` line *after* `tasks/kanidm_oidc.py` in `deploy.py` so the secret exists by the time the service task runs on deploy 2.
+
+### Two integration variants
+
+Pick whichever the service supports — the gating logic is the same in both:
+
+**Env-based** (Vaultwarden, Audiobookshelf, wg-portal, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
+
+**REST-based** (Memos): the service has no OIDC env vars and exposes a REST API to register identity providers post-startup. `tasks/secrets.py` writes the client secret into `/etc/secrets/{service}.env` (along with bootstrap admin credentials), then the service task adds a `server.shell` step that, in order:
+
+1. Sources `/etc/secrets/{service}.env`
+2. Polls a readiness probe (`/healthz` or equivalent)
+3. POSTs to the user-creation endpoint to bootstrap an admin from BW (`|| true` — repeat calls 4xx once the user exists, that's fine)
+4. POSTs to the auth endpoint to obtain a session/token
+5. GETs the IdP list and skips if the entry is already present (`grep -qx 'Kanidm'`)
+6. POSTs the IdP body with the bearer/cookie obtained in step 4
+
+`tasks/memos.py` is the reference implementation — copy the shell layout when adding a new REST-bootstrapped service.
+
+### When the API contract differs from the docs
+
+When implementing a REST-based variant, **verify the actual API on the running container before trusting upstream docs**. Probing tactics that have proven necessary:
+
+- `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:{port}/<endpoint>` to find which paths exist (404 vs 401 vs 501 distinguishes "not implemented" from "needs auth" from "wrong path")
+- `curl -sS -i ...` to inspect headers — some services use non-standard cookie headers (`Grpc-Metadata-Set-Cookie`) that curl's `-c` jar drops; in those cases parse the access token out of the JSON body and use `Authorization: Bearer ...` instead
+- Try both flat `{username, password}` and wrapped `{user: {...}}` body shapes when a 400 says "invalid {field}: " — wrapper conventions vary
+- The same applies to enum values (`type: "OAUTH2"` vs integer enum) and field-name casing
+
+Note any version-specific quirks in code comments so the next person reading the task doesn't repeat the discovery work.
 
 ## Traefik
 
