@@ -94,6 +94,22 @@ if _op_client_secret:
         "/etc/secrets/oauth2-proxy.env",
     )
 
+# --- Memos ---
+# Bootstrap admin (HOST) user creds. Sourced by tasks/memos.py to seed the
+# first user via the Memos REST API and to authenticate the Kanidm IdP
+# registration that follows.
+_memos_creds = bw.memos_creds()
+_memos_pw = _memos_creds["password"].replace("'", "'\\''")
+_memos_oidc = KANIDM_OIDC_CLIENTS.get("memos")
+_memos_oidc_secret = bw.kanidm_oidc_secret(_memos_oidc["secret_field"]) if _memos_oidc else ""
+_memos_lines = [
+    f"MEMOS_USERNAME={_memos_creds['username']}",
+    f"MEMOS_PASSWORD='{_memos_pw}'",
+]
+if _memos_oidc_secret:
+    _memos_lines.append(f"MEMOS_OIDC_CLIENT_SECRET='{_memos_oidc_secret}'")
+_put_secret("memos.env", "\n".join(_memos_lines) + "\n", "/etc/secrets/memos.env")
+
 # --- restic ---
 # Sourced by /usr/local/sbin/raspi-backup; password may contain special chars
 # so single-quote-escape it for `source` to handle correctly.

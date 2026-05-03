@@ -179,6 +179,7 @@ RESTIC = {
         "/var/lib/vaultwarden",
         "/var/lib/kanidm",
         "/var/lib/navidrome",
+        "/var/lib/memos",
         "/var/lib/gatus",
         "/var/lib/yarr",
         "/var/lib/audiobookshelf",
@@ -229,6 +230,15 @@ NAVIDROME = {
     "port": 4533,
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
+}
+
+MEMOS = {
+    "host": "127.0.0.1",
+    "port": 5230,
+    # `stable` is the upstream rolling tag; Diun + AutoUpdate=registry track digest changes.
+    "image": "docker.io/neosmemo/memos:stable",
+    "resolve_latest": False,
+    "memory_max": "128M",
 }
 
 VUIO = {
@@ -305,6 +315,13 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/oauth2/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "oauth2_proxy_client_secret",
+    },
+    "memos": {
+        "display_name": "Memos",
+        "url_prefix": "memo",
+        "redirect_path": "/auth/callback",
+        "scopes": ["openid", "email", "profile"],
+        "secret_field": "memos_client_secret",
     },
 }
 

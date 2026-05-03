@@ -24,6 +24,9 @@ Item structure in the 'raspi' folder:
   navidrome         login  username/password   (only required when oauth2-proxy is
                                                 NOT configured — used to bootstrap
                                                 an admin user for native Subsonic auth)
+  memos             login  username/password   (bootstrap HOST/admin user — first POST
+                                                /api/v1/users assigns HOST role; kept as
+                                                fallback for non-SSO admin login)
   syncthing         login  username/password   (web UI credentials)
   beszel            login  email/password       (email stored as username; used to bootstrap
                                                hub admin + superuser). USER_EMAIL/PASSWORD seed
@@ -197,6 +200,11 @@ def yarr_creds() -> dict:
 
 def navidrome_creds() -> dict:
     login = _get_item("navidrome")["login"]
+    return {"username": login["username"], "password": login["password"]}
+
+
+def memos_creds() -> dict:
+    login = _get_item("memos")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 

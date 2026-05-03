@@ -45,7 +45,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Kanidm)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Memos, Kanidm)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -62,8 +62,8 @@ When planning a new service, look for opportunities to clean up existing code th
 
 ## Adding a new service — checklist
 
-- [ ] `group_data/all.py` — add config dict (host, port, version/image)
-- [ ] `group_data/all.example.py` — mirror the same dict with placeholder values
+- [ ] `group_data/all.example.py` — add config dict (host, port, version/image)
+- [ ] `group_data/all.py` — mirror the same change verbatim (the file holds no secret values; AI assistants may edit it directly)
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
 - [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
@@ -75,17 +75,20 @@ When planning a new service, look for opportunities to clean up existing code th
 
 ## Secrets handling — AI assistants read this
 
-**Do NOT read secret values into your context.** Two locations contain live credentials:
-
-- `group_data/all.py` (local, gitignored) — has API keys inline in `HCC["env"]`, `NETWORK`, etc.
-- `/etc/secrets/*` on the Pi (over `ssh raspi`) — env files written by `tasks/secrets.py`.
+**Do NOT read secret values into your context.** All live credentials are in
+`/etc/secrets/*` on the Pi (env files written by `tasks/secrets.py`) and in
+the Bitwarden `raspi` folder. `group_data/all.py` itself contains only
+non-secret config plus references to BW field names (e.g. the `secret_env`
+dict in `HCC` maps env var → BW field name) — it is safe to read and to edit
+when mirroring additions made to `group_data/all.example.py`.
 
 **Banned operations** (these dump plaintext into the conversation transcript):
-- `Read` on `group_data/all.py` or any `/etc/secrets/*` file
 - `ssh raspi sudo cat /etc/secrets/...`
 - `ssh raspi sudo grep ... /etc/secrets/...`
 - `ssh raspi -- env` after sourcing a secret file
 - Any `echo $SECRET_VAR`, `printenv FOO`, `set | grep ...` that surfaces a value
+- Reading raw values from `bw get item ...` (filenames, field *names*, and
+  `bw status`/membership checks are fine — values are not)
 
 **Allowed operations** (secret stays inside the shell, never echoed):
 - `ssh raspi sudo systemctl restart <svc>` / `status` / `journalctl -u <svc>` (provided the service doesn't log its own secrets)
@@ -133,11 +136,41 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 
 ## SSO/OIDC (Kanidm)
 
-`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. To wire a new service into SSO:
+`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. **Two-deploy bootstrap is the canonical flow** for any new service that needs the Kanidm client secret: deploy 1 registers the client in Kanidm and writes the generated secret to BW; deploy 2 reads the secret out of BW and wires it into the service. Both deploys are otherwise idempotent.
 
-1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support it)
+To wire a new service into SSO:
+
+1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support it). Mirror the change to `group_data/all.example.py`.
 2. In the service task, look up the entry with `KANIDM_OIDC_CLIENTS.get(name)` and only configure SSO when both the entry exists *and* `bw.kanidm_oidc_secret(...)` returns non-empty. This keeps OIDC truly optional — removing the entry (or starting with an empty dict) deploys the service without SSO; the empty-secret guard also handles the first deploy where the secret hasn't been generated yet.
-3. First deploy generates the secret in Kanidm and saves it to BW; second deploy propagates it to the service's env file.
+3. Place the `local.include("tasks/{service}.py")` line *after* `tasks/kanidm_oidc.py` in `deploy.py` so the secret exists by the time the service task runs on deploy 2.
+
+### Two integration variants
+
+Pick whichever the service supports — the gating logic is the same in both:
+
+**Env-based** (Vaultwarden, Audiobookshelf, wg-portal, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
+
+**REST-based** (Memos): the service has no OIDC env vars and exposes a REST API to register identity providers post-startup. `tasks/secrets.py` writes the client secret into `/etc/secrets/{service}.env` (along with bootstrap admin credentials), then the service task adds a `server.shell` step that, in order:
+
+1. Sources `/etc/secrets/{service}.env`
+2. Polls a readiness probe (`/healthz` or equivalent)
+3. POSTs to the user-creation endpoint to bootstrap an admin from BW (`|| true` — repeat calls 4xx once the user exists, that's fine)
+4. POSTs to the auth endpoint to obtain a session/token
+5. GETs the IdP list and skips if the entry is already present (`grep -qx 'Kanidm'`)
+6. POSTs the IdP body with the bearer/cookie obtained in step 4
+
+`tasks/memos.py` is the reference implementation — copy the shell layout when adding a new REST-bootstrapped service.
+
+### When the API contract differs from the docs
+
+When implementing a REST-based variant, **verify the actual API on the running container before trusting upstream docs**. Probing tactics that have proven necessary:
+
+- `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:{port}/<endpoint>` to find which paths exist (404 vs 401 vs 501 distinguishes "not implemented" from "needs auth" from "wrong path")
+- `curl -sS -i ...` to inspect headers — some services use non-standard cookie headers (`Grpc-Metadata-Set-Cookie`) that curl's `-c` jar drops; in those cases parse the access token out of the JSON body and use `Authorization: Bearer ...` instead
+- Try both flat `{username, password}` and wrapped `{user: {...}}` body shapes when a 400 says "invalid {field}: " — wrapper conventions vary
+- The same applies to enum values (`type: "OAUTH2"` vs integer enum) and field-name casing
+
+Note any version-specific quirks in code comments so the next person reading the task doesn't repeat the discovery work.
 
 ## Traefik
 
@@ -163,6 +196,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 3000 | HCC |
 | 3001 | Gatus |
 | 4533 | Navidrome |
+| 5230 | Memos |
 | 5335 | Unbound (DNS) |
 | 7070 | Yarr |
 | 8384 | Syncthing web UI |
