@@ -21,6 +21,14 @@ WIREGUARD = {
     # "public_ipv4": True,
 }
 
+# Off-Pi LLM endpoint (Mac mini ../mini repo). Traefik proxies ai.{domain}
+# to this LAN address; the Mini owns auth (currently none — bare proxy).
+AI = {
+    "host": "192.168.x.y",  # Mac mini LAN IP
+    "port": 11434,  # Caddy gateway port on the Mini
+    "url_prefix": "ai",
+}
+
 UNBOUND = {
     "port": 5335,
     "msg_cache_mb": 50,  # message cache — increase to 100 if you have RAM to spare

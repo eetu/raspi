@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault as bw
-from group_data.all import NETWORK, WIREGUARD
+from group_data.all import AI, NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
@@ -82,6 +82,7 @@ def configure_dns(state=None, host=None):
         "metrics",
         "idm",
         "auth",
+        AI["url_prefix"],
     ):
         _ensure_record(subdomain, lan_ip, "A")
 

@@ -7,6 +7,7 @@ from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import (
+    AI,
     AUDIOBOOKSHELF,
     BESZEL,
     GATUS,
@@ -293,6 +294,15 @@ http:
       tls:
         certResolver: cloudflare
 
+    # Off-Pi LLM endpoint — proxies to the Mac mini's Caddy → Ollama chain.
+    # Auth (if enabled) is enforced upstream on the Mini, not here.
+    ai:
+      rule: "Host(`{AI["url_prefix"]}.{DOMAIN}`)"
+      service: ai
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -382,6 +392,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{OAUTH2_PROXY["host"]}:{OAUTH2_PROXY["port"]}"
+
+    ai:
+      loadBalancer:
+        servers:
+          - url: "http://{AI["host"]}:{AI["port"]}"
 
   serversTransports:
     kanidmTransport:
