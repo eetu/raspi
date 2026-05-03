@@ -3,13 +3,11 @@
 import hashlib
 import io
 import json
-import random
-import string
 
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import NAVIDROME
+from group_data.all import KANIDM_OIDC_CLIENTS, NAVIDROME
 from tasks.util import resolve_latest
 
 _image = (
@@ -17,6 +15,17 @@ _image = (
     if NAVIDROME.get("resolve_latest")
     else NAVIDROME["image"]
 )
+
+# Two auth modes:
+#  - oauth2-proxy active → the music router uses oauth2-chain-music; clients
+#    authenticate via Kanidm SSO (Flo's "Login with IAP" or any browser-based
+#    Subsonic client) and Navidrome auto-creates users from the trusted
+#    X-Auth-Request-User header on loopback. No admin-user bootstrap needed.
+#  - oauth2-proxy not active → the music router exposes Navidrome directly;
+#    we bootstrap an admin user from the `navidrome` Bitwarden item so plain
+#    Subsonic clients can log in with username/password.
+_oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
+_oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
 
 quadlet = f"""\
 [Unit]
@@ -44,8 +53,9 @@ Environment=ND_LASTFM_ENABLED=false
 Environment=ND_LISTENBRAINZ_ENABLED=false
 Environment=ND_UPDATECHECK=false
 Environment=ND_COVERARTPRIORITY=embedded,cover.*,folder.*,front.*
-# SSO via oauth2-proxy: trust X-Auth-Request-User from Traefik on loopback.
-# Subsonic API still uses native username/password (see music-subsonic router).
+# Trust X-Auth-Request-User from Traefik on loopback. Only consulted when
+# oauth2-proxy is in front of the music router — otherwise the header is
+# never set and Navidrome falls back to its own username/password auth.
 Environment=ND_REVERSEPROXYUSERHEADER=X-Auth-Request-User
 Environment=ND_REVERSEPROXYWHITELIST=127.0.0.1/32
 AutoUpdate=registry
@@ -62,13 +72,6 @@ WantedBy=multi-user.target
 """
 
 _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
-_creds = bw.navidrome_creds()
-_nd_password_json = json.dumps(_creds["password"])
-
-# Subsonic token auth: t=md5(password+salt), generated fresh each deploy
-_salt = "".join(random.choices(string.ascii_lowercase, k=8))
-_token = hashlib.md5((_creds["password"] + _salt).encode()).hexdigest()
-_subsonic_auth = f"u={_creds['username']}&t={_token}&s={_salt}&v=1.16.1&c=raspi&f=json"
 
 files.directory(
     name="Create navidrome data dir",
@@ -102,24 +105,30 @@ systemd.service(
     daemon_reload=True,
 )
 
-server.shell(
-    name="Initialize Navidrome admin user",
-    commands=[
-        f"""
-        ND_URL="http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
-        for i in $(seq 1 15); do
-          STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' "$ND_URL/ping" 2>/dev/null || true)
-          if [ "$STATUS" = "200" ]; then break; fi
-          sleep 3
-        done
-        # /auth/createAdmin only succeeds when no users exist — safe to call on every deploy
-        curl -sf -X POST "$ND_URL/auth/createAdmin" \
-          -H "Content-Type: application/json" \
-          -d '{{"username":"{_creds["username"]}","password":{_nd_password_json}}}' \
-          2>/dev/null || true
-        """,
-    ],
-)
+if not _oauth2_active:
+    # No SSO — seed the admin user from Bitwarden so Subsonic clients can
+    # log in. /auth/createAdmin is a no-op once a user exists, so re-running
+    # the deploy is safe; rotating the BW password however does NOT propagate
+    # to an existing admin user — that requires a manual reset.
+    _creds = bw.navidrome_creds()
+    _nd_password_json = json.dumps(_creds["password"])
+    server.shell(
+        name="Initialize Navidrome admin user",
+        commands=[
+            f"""
+            ND_URL="http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
+            for i in $(seq 1 15); do
+              STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' "$ND_URL/ping" 2>/dev/null || true)
+              if [ "$STATUS" = "200" ]; then break; fi
+              sleep 3
+            done
+            curl -sf -X POST "$ND_URL/auth/createAdmin" \
+              -H "Content-Type: application/json" \
+              -d '{{"username":"{_creds["username"]}","password":{_nd_password_json}}}' \
+              2>/dev/null || true
+            """,
+        ],
+    )
 
 server.shell(
     name="Restart Navidrome if quadlet changed",
@@ -130,16 +139,6 @@ server.shell(
           systemctl restart navidrome
           echo '{_quadlet_hash}' > "$STAMP"
         fi
-        """,
-    ],
-)
-
-server.shell(
-    name="Trigger Navidrome library scan",
-    commands=[
-        f"""
-        ND_URL="http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
-        curl -sf "$ND_URL/rest/startScan.view?{_subsonic_auth}" > /dev/null 2>&1 || true
         """,
     ],
 )

@@ -20,7 +20,9 @@ Item structure in the 'raspi' folder:
                                    smtp_email   (Gmail address used for SMTP_USERNAME and SMTP_FROM)
                                    smtp_password (hidden, Gmail app password)
   yarr              login  username/password   (use alphanumeric-only password — no colons)
-  navidrome         login  username/password
+  navidrome         login  username/password   (only required when oauth2-proxy is
+                                                NOT configured — used to bootstrap
+                                                an admin user for native Subsonic auth)
   syncthing         login  username/password   (web UI credentials)
   beszel            login  email/password       (email stored as username; used to bootstrap
                                                hub admin + superuser). USER_EMAIL/PASSWORD seed
@@ -184,13 +186,13 @@ def asus_router_ssh() -> dict:
     return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
 
 
-def navidrome_creds() -> dict:
-    login = _get_item("navidrome")["login"]
+def yarr_creds() -> dict:
+    login = _get_item("yarr")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 
-def yarr_creds() -> dict:
-    login = _get_item("yarr")["login"]
+def navidrome_creds() -> dict:
+    login = _get_item("navidrome")["login"]
     return {"username": login["username"], "password": login["password"]}
 
 

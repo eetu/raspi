@@ -5,12 +5,14 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
+import vault as bw
 from group_data.all import (
     AUDIOBOOKSHELF,
     BESZEL,
     GATUS,
     HCC,
     KANIDM,
+    KANIDM_OIDC_CLIENTS,
     NAVIDROME,
     NETWORK,
     NTFY,
@@ -31,12 +33,22 @@ BINARY_URL = (
 )
 DOMAIN = NETWORK["domain"]
 
+# Whether oauth2-proxy is wired up for this deployment. Used to gate the
+# music router — when oauth2-proxy is not configured, Navidrome is exposed
+# directly and clients use its native username/password auth instead of IAP.
+_oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
+_oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
+
 # Hosts gated by oauth2-proxy. Each gets a per-host errors middleware whose
 # `rd` parameter pins the post-auth redirect target — Traefik's errors
 # middleware only substitutes {status} in `query`, and X-Forwarded-Uri is not
 # propagated to the auth backend, so oauth2-proxy can't reconstruct the
 # origin URL on its own.
 OAUTH2_GATED_HOSTS = ("pihole", "rss", "music", "syncthing")
+if not _oauth2_active:
+    OAUTH2_GATED_HOSTS = tuple(h for h in OAUTH2_GATED_HOSTS if h != "music")
+
+_music_middlewares = "      middlewares: [oauth2-chain-music]\n" if _oauth2_active else ""
 
 # --- Binary ---
 
@@ -226,21 +238,11 @@ http:
       tls:
         certResolver: cloudflare
 
-    # Subsonic API stays open (mobile clients use username/password); priority
-    # forces this route ahead of the catch-all `music` router below.
-    music-subsonic:
-      rule: "Host(`music.{DOMAIN}`) && (PathPrefix(`/rest`) || PathPrefix(`/share`))"
-      service: music
-      priority: 100
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
     music:
       rule: "Host(`music.{DOMAIN}`)"
       service: music
       entryPoints: [websecure]
-      middlewares: [oauth2-chain-music]
+{_music_middlewares.rstrip()}
       tls:
         certResolver: cloudflare
 

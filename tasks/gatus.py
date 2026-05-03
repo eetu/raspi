@@ -6,7 +6,16 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import CIFS, GATUS, HOSTS, KANIDM_OIDC_CLIENTS, NETWORK, NTFY, UNBOUND
+from group_data.all import (
+    CIFS,
+    GATUS,
+    HOSTS,
+    KANIDM_OIDC_CLIENTS,
+    NAVIDROME,
+    NETWORK,
+    NTFY,
+    UNBOUND,
+)
 from tasks.util import resolve_latest
 
 DOMAIN = NETWORK["domain"]
@@ -24,6 +33,11 @@ _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_clie
 # isolated /etc/hosts doesn't have to know the NAS hostname.
 _nas_host_raw = CIFS["audiobooks"]["share"].split("/")[2]
 _nas_host = HOSTS.get(_nas_host_raw, _nas_host_raw)
+
+_navidrome_url = (
+    f"http://{NAVIDROME['host']}:{NAVIDROME['port']}"
+    "/rest/getOpenSubsonicExtensions.view?f=json&c=gatus&v=1.16.1"
+)
 
 _config_yaml = f"""\
 alerting:
@@ -87,12 +101,14 @@ endpoints:
       - type: ntfy
 
   - name: Navidrome
-    # Subsonic ping bypasses oauth2-proxy via the music-subsonic router and
-    # always returns 200 (auth status is reported in the JSON body).
-    url: "https://music.{DOMAIN}/rest/ping.view?u=gatus&p=gatus&v=1.16.1&c=gatus&f=json"
+    # Navidrome sits behind oauth2-proxy on the public hostname. Hit it on
+    # loopback (gatus uses host networking) so we exercise the unauthenticated
+    # OpenSubsonic endpoint without going through SSO.
+    url: "{_navidrome_url}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
+      - "[BODY].subsonic-response.status == ok"
     alerts:
       - type: ntfy
 
