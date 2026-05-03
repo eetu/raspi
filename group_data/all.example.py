@@ -139,6 +139,13 @@ CIFS = {
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
+    # Used by tasks/restic.py for the encrypted backup repository.
+    "backups": {
+        "share": "//nasname/backups",
+        "mountpoint": "/mnt/backups",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+    },
 }
 
 NTFY = {
@@ -158,6 +165,42 @@ GATUS = {
 
 TRIVY = {
     "version": "0.69.3",
+}
+
+# Encrypted incremental backups of service state to the NAS via restic.
+# The repo lives under {CIFS["backups"]["mountpoint"]}/raspi-restic.
+# Set CIFS["backups"] (above) and create the `restic` Bitwarden item before
+# enabling. Remove this dict to opt out — tasks/restic.py becomes a no-op.
+RESTIC = {
+    "version": "0.18.0",
+    # Service state directories restored verbatim on a blank Pi. Add new
+    # entries here when adding services that store persistent data.
+    "paths": [
+        "/var/lib/vaultwarden",
+        "/var/lib/kanidm",
+        "/var/lib/navidrome",
+        "/var/lib/gatus",
+        "/var/lib/yarr",
+        "/var/lib/audiobookshelf",
+        "/var/lib/syncthing",
+        "/var/lib/wg-portal",
+        "/var/lib/beszel",
+        "/etc/traefik/acme.json",
+    ],
+    "retention": {"daily": 7, "weekly": 4, "monthly": 6},
+    # systemd OnCalendar — daily 03:30 local with 15min jitter.
+    "schedule": "*-*-* 03:30:00",
+    # Weekly prune to actually reclaim space from forgotten snapshots — kept
+    # off the daily timer because prune is RAM-hungry and locks the repo.
+    # `prune_max_unused` caps work per run (e.g. "100M") so the Pi 4 1GB doesn't OOM.
+    "prune_schedule": "Sun *-*-* 04:30:00",
+    "prune_max_unused": "100M",
+    # Paths excluded from snapshots — derived/regenerable state that would
+    # otherwise bloat the repo and overflow tmpfs /tmp during restic packing.
+    "excludes": [
+        "/var/lib/navidrome/cache",
+        "/var/lib/navidrome/artwork",
+    ],
 }
 
 VAULTWARDEN = {

@@ -5,6 +5,7 @@ Bitwarden CLI helpers. Requires BW_SESSION env var to be set:
 Item structure in the 'raspi' folder:
   cloudflare        login  password=api_token  fields: zone_id
   cifs              login  (unused)            fields: {share}_username, {share}_password (hidden) per CIFS key
+                                               (e.g. backups_username/password for the restic repo share)
   audiobookshelf    login  username/password   fields: api_key (hidden)
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
@@ -42,6 +43,9 @@ Item structure in the 'raspi' folder:
   oauth2-proxy      login  (unused)             fields: cookie_secret (hidden, base64-encoded 32
                                                  random bytes; generated locally on first deploy
                                                  and persisted so sessions survive restarts)
+  restic            login  password=repo_password (used to encrypt the restic backup repo;
+                                                  treat as load-bearing — losing this means
+                                                  losing access to all snapshots)
 """
 
 import base64
@@ -194,6 +198,10 @@ def yarr_creds() -> dict:
 def navidrome_creds() -> dict:
     login = _get_item("navidrome")["login"]
     return {"username": login["username"], "password": login["password"]}
+
+
+def restic_password() -> str:
+    return _get_item("restic")["login"]["password"]
 
 
 def syncthing_creds() -> dict:
