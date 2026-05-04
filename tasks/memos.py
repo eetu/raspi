@@ -30,7 +30,11 @@ Wants=network-online.target
 ContainerName=memos
 Image={_image}
 Network=host
-Volume=/var/lib/memos:/var/opt/memos
+# `:U` chowns the bind-mount source to the container's runtime UID/GID
+# (`nonroot`, 10001) at start so Memos can mkdir under /var/opt/memos for
+# uploaded attachments. Without this, the data dir stays root:root and
+# Memos fails to create /var/opt/memos/assets the first time you attach a file.
+Volume=/var/lib/memos:/var/opt/memos:U
 Environment=TZ=Europe/Helsinki
 Environment=MEMOS_PORT={MEMOS["port"]}
 Environment=MEMOS_ADDR={MEMOS["host"]}
