@@ -238,22 +238,21 @@ PYEOF
     ],
 )
 
-# Fetch the hub universal token via API and write it to the agent env file.
-# Only runs when TOKEN is empty (first deploy or after manual rotation).
-# The "Sync beszel user password" step above already ensures the regular user's
-# password matches BW, so we can auth directly here.
-# Credentials passed via env so special chars in the password are safe.
+# Reconcile the hub universal token into the agent env file. Always passes
+# `enable=1&permanent=1` so the value is persisted in the hub DB; if a token
+# already exists in the env file (e.g. an ephemeral one from before this fix
+# went in) it is forwarded as `&token=<existing>` so the hub upserts the same
+# value as permanent — the running agent's registration stays valid and the
+# call is idempotent across re-deploys (hub api.go:230-247).
 server.shell(
-    name="Fetch beszel universal token from hub API",
+    name="Reconcile beszel universal token from hub API",
     commands=[
         f"""
         set -a; . /etc/secrets/beszel-hub.env; set +a
-        # Skip if token already set
-        CURRENT_TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
-        if [ -n "$CURRENT_TOKEN" ]; then exit 0; fi
         if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then
-          echo "beszel: USER_EMAIL/USER_PASSWORD not set, skipping token fetch" >&2; exit 0
+          echo "beszel: USER_EMAIL/USER_PASSWORD not set, skipping token sync" >&2; exit 0
         fi
+        CURRENT_TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
         # Wait for hub to accept connections
         for i in $(seq 1 30); do
           curl -sf http://{BESZEL["host"]}:{BESZEL["port"]}/api/health >/dev/null 2>&1 && break
@@ -269,16 +268,18 @@ server.shell(
         if [ -z "$JWT" ]; then
           echo "beszel: failed to authenticate for token fetch" >&2; exit 1
         fi
-        # Enable and retrieve universal token
-        TOKEN=$(curl -sf "http://{BESZEL["host"]}:{BESZEL["port"]}/api/beszel/universal-token?enable=1" \
-          -H "Authorization: $JWT" | grep -oP '"token":"\\K[^"]+')
+        # Forward existing token if any so we promote it to permanent in place
+        # rather than minting a fresh UUID and breaking the agent's session.
+        URL="http://{BESZEL["host"]}:{BESZEL["port"]}/api/beszel/universal-token?enable=1&permanent=1"
+        if [ -n "$CURRENT_TOKEN" ]; then URL="$URL&token=$CURRENT_TOKEN"; fi
+        TOKEN=$(curl -sf "$URL" -H "Authorization: $JWT" | grep -oP '"token":"\\K[^"]+')
         if [ -z "$TOKEN" ]; then
           echo "beszel: failed to fetch universal token" >&2; exit 1
         fi
         HUB_KEY=$(ssh-keygen -y -f /var/lib/beszel-hub/beszel_data/id_ed25519)
         printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
         chmod 600 /etc/secrets/beszel-agent.env
-        echo "beszel: universal token and hub key written to agent env"
+        echo "beszel: universal token (permanent) and hub key written to agent env"
         """,
     ],
 )
