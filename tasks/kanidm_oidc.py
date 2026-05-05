@@ -13,9 +13,25 @@ deploy the secret is read from the API and saved to Bitwarden. Subsequent deploy
 read it from BW via secrets.py. A second deploy (or targeted
 `tasks/secrets.py tasks/vaultwarden.py`) is needed after first setup to
 propagate the generated secret to downstream services.
+
+Per-person credential reset tokens are self-healing: regenerated on every deploy
+until the user enrolls a credential (checked via `/_credential/_status`), then
+left alone. Add a person to KANIDM_PERSONS, redeploy, and the latest token URL
+lands in the `kanidm` BW item under `{username}_reset_token`. If the token (1 h
+default TTL) expires before enrollment, just redeploy.
+
+Lockout recovery: if an enrolled person loses their password / OTP / passkey,
+mint a fresh reset URL by force-overriding the enrollment check via env var
+(comma-separated list of usernames):
+
+    KANIDM_FORCE_RESET=bob uv run pyinfra inventory.py tasks/kanidm_oidc.py
+
+The new URL replaces existing credentials when the user completes the update
+session — no need to delete them out-of-band first.
 """
 
 import json
+import os
 import subprocess
 
 from pyinfra import logger
@@ -28,6 +44,9 @@ DOMAIN = NETWORK["domain"]
 
 # Serialize config for the embedded Python script on the Pi
 _persons_json = json.dumps(KANIDM_PERSONS)
+_force_reset_json = json.dumps(
+    [u.strip() for u in os.environ.get("KANIDM_FORCE_RESET", "").split(",") if u.strip()]
+)
 _clients_json = json.dumps(
     {
         name: {
@@ -109,6 +128,7 @@ print("kanidm: idm_admin authenticated")
 
 # --- Create persons ---
 persons = json.loads({_persons_json!r})
+force_reset = set(json.loads({_force_reset_json!r}))
 for username, info in persons.items():
     if not exists(f"/v1/person/{{username}}", token):
         api("POST", "/v1/person", {{
@@ -129,9 +149,28 @@ for username, info in persons.items():
         }}
     }}, token=token)
 
-    # Generate credential reset token (one-shot per person)
-    stamp = f"/var/lib/kanidm/.person-{{username}}-setup"
-    if not os.path.exists(stamp):
+    # Self-healing credential reset token: regenerate on every deploy until
+    # the person enrolls a credential, then stop. Replaces an older stamp-
+    # based gate that blocked regeneration after token expiry.
+    # API response shape: {{"creds": [...]}} when enrolled, "nomatchingentries"
+    # (string) or absent `creds` key when not.
+    has_creds = False
+    try:
+        st = api("GET", f"/v1/person/{{username}}/_credential/_status", token=token)
+        has_creds = isinstance(st, dict) and bool(st.get("creds"))
+    except Exception:
+        pass
+
+    if username in force_reset:
+        print(f"kanidm: force-reset requested for {{username}} — minting new URL")
+        has_creds = False
+
+    if has_creds:
+        # Sentinel tells the local-side BW step to clear any stale reset URL
+        # left over from before enrollment (used or expired, single-use).
+        with open(f"/var/lib/kanidm/.reset-token-{{username}}", "w") as f:
+            f.write("__ENROLLED__")
+    else:
         try:
             r = api("GET", f"/v1/person/{{username}}/_credential/_update_intent", token=token)
             tok = r.get("token", "")
@@ -139,7 +178,6 @@ for username, info in persons.items():
                 url = f"{{ORIGIN}}/ui/reset?token={{tok}}"
                 with open(f"/var/lib/kanidm/.reset-token-{{username}}", "w") as f:
                     f.write(url)
-                open(stamp, "w").close()
                 print(f"kanidm: reset token for {{username}}: {{url}}")
         except Exception as e:
             print(f"kanidm: failed to get reset token for {{username}}: {{e}}")
@@ -252,25 +290,34 @@ def _save_to_bitwarden(state=None, host=None):
             changed = True
             logger.info(f"kanidm: {client_name} OIDC secret saved to Bitwarden")
 
-    # Per-person reset tokens
+    # Per-person reset tokens. Server-side writes one of:
+    #   <reset URL>     — fresh intent token, save/overwrite in BW
+    #   __ENROLLED__    — sentinel, person has credentials, blank stale field
+    #   (no file)       — nothing to do
     for username in KANIDM_PERSONS:
-        token = _ssh_cat(f"/var/lib/kanidm/.reset-token-{username}")
-        if not token:
+        payload = _ssh_cat(f"/var/lib/kanidm/.reset-token-{username}")
+        if not payload:
             continue
-
-        logger.info(f"kanidm: credential reset token for {username}:\n{token}")
 
         field_name = f"{username}_reset_token"
         existing = next((f for f in fields if f["name"] == field_name), None)
-        if existing:
-            if not existing["value"]:
-                existing["value"] = token
+
+        if payload == "__ENROLLED__":
+            if existing and existing["value"]:
+                existing["value"] = ""
+                changed = True
+                logger.info(f"kanidm: cleared stale {username} reset token from Bitwarden")
+        else:
+            logger.info(f"kanidm: credential reset token for {username}:\n{payload}")
+            if existing:
+                if existing["value"] != payload:
+                    existing["value"] = payload
+                    changed = True
+                    logger.info(f"kanidm: {username} reset token updated in Bitwarden")
+            else:
+                fields.append({"name": field_name, "value": payload, "type": 1})
                 changed = True
                 logger.info(f"kanidm: saved {username} reset token to Bitwarden")
-        else:
-            fields.append({"name": field_name, "value": token, "type": 1})
-            changed = True
-            logger.info(f"kanidm: saved {username} reset token to Bitwarden")
 
         # Clean up temp file
         subprocess.run(
