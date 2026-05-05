@@ -195,6 +195,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 80 / 443 | Traefik |
 | 3000 | HCC |
 | 3001 | Gatus |
+| 3002 | Chat |
 | 4533 | Navidrome |
 | 5230 | Memos |
 | 5335 | Unbound (DNS) |

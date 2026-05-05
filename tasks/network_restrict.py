@@ -24,6 +24,7 @@ RESTRICTED = [
     "audiobookshelf",
     "beszel-hub",
     "beszel-agent",
+    "chat",
     "navidrome",
     "ntfy",
     "oauth2-proxy",

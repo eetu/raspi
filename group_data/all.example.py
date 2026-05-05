@@ -54,6 +54,16 @@ PIHOLE = {
     ],
 }
 
+CHAT = {
+    "host": "127.0.0.1",
+    "port": 3002,
+    "image": "ghcr.io/eetu/chat:main",
+    # Plain config env vars. See chat/backend/.env.example.
+    "env": {
+        "CHAT_TTL_DAYS": "30",
+    },
+}
+
 HCC = {
     "host": "127.0.0.1",
     "port": 3000,
@@ -194,6 +204,7 @@ RESTIC = {
         "/var/lib/syncthing",
         "/var/lib/wg-portal",
         "/var/lib/beszel",
+        "/var/lib/chat",
         "/etc/traefik/acme.json",
     ],
     "retention": {"daily": 7, "weekly": 4, "monthly": 6},
@@ -330,6 +341,13 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "memos_client_secret",
+    },
+    "chat": {
+        "display_name": "Chat",
+        "url_prefix": "chat",
+        "redirect_path": "/auth/callback",
+        "scopes": ["openid", "profile", "email"],
+        "secret_field": "chat_client_secret",
     },
 }
 

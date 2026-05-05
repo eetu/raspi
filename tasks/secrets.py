@@ -5,7 +5,7 @@ import io
 from pyinfra.operations import files
 
 import vault as bw
-from group_data.all import CIFS, HCC, KANIDM_OIDC_CLIENTS, NETWORK
+from group_data.all import AI, CIFS, HCC, KANIDM_OIDC_CLIENTS, NETWORK
 
 try:
     from group_data.all import RESTIC
@@ -109,6 +109,26 @@ _memos_lines = [
 if _memos_oidc_secret:
     _memos_lines.append(f"MEMOS_OIDC_CLIENT_SECRET='{_memos_oidc_secret}'")
 _put_secret("memos.env", "\n".join(_memos_lines) + "\n", "/etc/secrets/memos.env")
+
+# --- Chat ---
+# SESSION_KEY is auto-generated on first deploy. OIDC vars are written only
+# once Kanidm has produced the client secret on a previous deploy.
+_chat_oidc = KANIDM_OIDC_CLIENTS.get("chat")
+_chat_oidc_secret = bw.kanidm_oidc_secret(_chat_oidc["secret_field"]) if _chat_oidc else ""
+_chat_lines = [
+    f"SESSION_KEY={bw.chat_session_key()}",
+    f"OLLAMA_URL=http://{AI['host']}:{AI['port']}",
+]
+if _chat_oidc_secret:
+    _chat_lines.extend(
+        [
+            f"OIDC_ISSUER=https://idm.{DOMAIN}/oauth2/openid/chat",
+            "OIDC_CLIENT_ID=chat",
+            f"OIDC_CLIENT_SECRET={_chat_oidc_secret}",
+            f"OIDC_REDIRECT_URL=https://chat.{DOMAIN}/auth/callback",
+        ]
+    )
+_put_secret("chat.env", "\n".join(_chat_lines) + "\n", "/etc/secrets/chat.env")
 
 # --- restic ---
 # Sourced by /usr/local/sbin/raspi-backup; password may contain special chars

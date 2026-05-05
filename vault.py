@@ -46,6 +46,9 @@ Item structure in the 'raspi' folder:
   oauth2-proxy      login  (unused)             fields: cookie_secret (hidden, base64-encoded 32
                                                  random bytes; generated locally on first deploy
                                                  and persisted so sessions survive restarts)
+  chat              login  (unused)             fields: session_key (hidden, 64-byte hex; generated
+                                                 locally on first deploy and persisted so SSE/auth
+                                                 sessions survive restarts)
   restic            login  password=repo_password (used to encrypt the restic backup repo;
                                                   treat as load-bearing — losing this means
                                                   losing access to all snapshots)
@@ -250,6 +253,22 @@ def oauth2_proxy_cookie_secret() -> str:
     item = json.loads(json.dumps(_get_item("oauth2-proxy")))  # copy
     fields = item.get("fields") or []
     fields.append({"name": "cookie_secret", "value": new, "type": 1})
+    item["fields"] = fields
+    _edit_item(item)
+    return new
+
+
+def chat_session_key() -> str:
+    """Return chat SESSION_KEY (64-byte hex), generating + persisting on first call.
+
+    A stable key is required so cookie-encrypted sessions survive restarts."""
+    existing = _fields("chat").get("session_key", "") or ""
+    if existing:
+        return existing
+    new = secrets.token_hex(64)
+    item = json.loads(json.dumps(_get_item("chat")))  # copy
+    fields = item.get("fields") or []
+    fields.append({"name": "session_key", "value": new, "type": 1})
     item["fields"] = fields
     _edit_item(item)
     return new

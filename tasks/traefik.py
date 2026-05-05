@@ -10,6 +10,7 @@ from group_data.all import (
     AI,
     AUDIOBOOKSHELF,
     BESZEL,
+    CHAT,
     GATUS,
     HCC,
     KANIDM,
@@ -256,6 +257,14 @@ http:
       tls:
         certResolver: cloudflare
 
+    # No oauth2-chain — Chat handles its own auth (Kanidm OIDC).
+    chat:
+      rule: "Host(`chat.{DOMAIN}`)"
+      service: chat
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
     # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
     syncthing-monitor:
       rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
@@ -371,6 +380,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{MEMOS["host"]}:{MEMOS["port"]}"
+
+    chat:
+      loadBalancer:
+        servers:
+          - url: "http://{CHAT["host"]}:{CHAT["port"]}"
 
     syncthing:
       loadBalancer:

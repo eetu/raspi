@@ -78,6 +78,7 @@ def configure_dns(state=None, host=None):
         "rss",
         "music",
         "memo",
+        "chat",
         "syncthing",
         "metrics",
         "idm",
