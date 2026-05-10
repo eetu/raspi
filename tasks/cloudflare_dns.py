@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault as bw
-from group_data.all import AI, NETWORK, WIREGUARD
+from group_data.all import AI, COMFY, NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
@@ -68,7 +68,8 @@ def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
 
     for subdomain in (
-        "hcc",
+        "halo",
+        "hcc",  # legacy fallback for halo — keep until clients migrate
         "pihole",
         "audiobooks",
         "vpn",
@@ -84,6 +85,7 @@ def configure_dns(state=None, host=None):
         "idm",
         "auth",
         AI["url_prefix"],
+        COMFY["url_prefix"],
     ):
         _ensure_record(subdomain, lan_ip, "A")
 

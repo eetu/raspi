@@ -29,6 +29,19 @@ AI = {
     "url_prefix": "ai",
 }
 
+# Off-Pi image-generation endpoint (Mac mini ../mini repo, ComfyUI w/ Flux
+# Kontext img2img). Traefik proxies comfy.{domain} to the Mini's Caddy on
+# port 8188; the Mini owns auth (toggle COMFYUI["require_api_key"] in the
+# ../mini repo — strongly recommended ON when exposing publicly, since
+# ComfyUI has no native auth and a single workflow submission pegs the
+# Mac's GPU for ~30-50 s). ComfyUI uses a WebSocket at /ws for progress
+# events; Traefik passes WS upgrades through automatically.
+COMFY = {
+    "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
+    "port": 8188,  # Caddy gateway port for ComfyUI on the Mini
+    "url_prefix": "comfy",
+}
+
 UNBOUND = {
     "port": 5335,
     "msg_cache_mb": 50,  # message cache — increase to 100 if you have RAM to spare
@@ -64,11 +77,11 @@ CHAT = {
     },
 }
 
-HCC = {
+HALO = {
     "host": "127.0.0.1",
     "port": 3000,
-    "image": "ghcr.io/eetu/hcc:main",
-    # Plain config env vars. See hcc/backend/src/settings.rs.
+    "image": "ghcr.io/eetu/halo:main",
+    # Plain config env vars. See halo/backend/src/settings.rs.
     # Non-string values (dicts, lists, numbers, bools) are compact-JSON-serialized
     # at deploy time — keep structured config readable here.
     "env": {
@@ -81,13 +94,13 @@ HCC = {
             "inside_cold": [],
             "outside": [],
         },
-        "HCC_HISTORY_RETENTION_DAYS": "0",
+        "HALO_HISTORY_RETENTION_DAYS": "0",
         "SOLIS_STATION_ID": "",
         "SOLIS_BASE_URL": "https://www.soliscloud.com:13333",
     },
-    # Secrets sourced from Bitwarden item `hcc`. Map: env var name -> BW field name.
+    # Secrets sourced from Bitwarden item `halo`. Map: env var name -> BW field name.
     # Each entry must exist as a hidden field on the BW item before deploy.
-    # tasks/secrets.py writes these to /etc/secrets/hcc.env at deploy time.
+    # tasks/secrets.py writes these to /etc/secrets/halo.env at deploy time.
     "secret_env": {
         "TOMORROW_IO_API_KEY": "tomorrow_io_api_key",
         "HUE_BRIDGE_USER": "hue_bridge_user",
@@ -96,7 +109,7 @@ HCC = {
     },
 }
 
-# One-shot FMI PV forecast runner. Posts JSON to HCC /api/pv/forecast on a timer.
+# One-shot FMI PV forecast runner. Posts JSON to Halo /api/pv/forecast on a timer.
 # Geographic coverage: Finland, Scandinavia, Baltic states.
 FMI_PV_FORECAST = {
     "image": "ghcr.io/eetu/fmi-pv-forecast-runner:latest",

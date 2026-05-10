@@ -10,8 +10,8 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Unbound](https://nlnetlabs.nl/projects/unbound/) | Recursive DNS resolver (upstream for Pi-hole) |
 | [WireGuard](https://www.wireguard.com) + [wg-portal](https://github.com/h44z/wg-portal) | VPN for secure access from outside the LAN |
 | [Traefik](https://traefik.io) | Reverse proxy with automatic HTTPS (wildcard cert via Let's Encrypt + Cloudflare DNS) |
-| [HCC](https://github.com/eetu/hcc) | Home control dashboard |
-| [fmi-pv-forecast-runner](https://github.com/eetu/fmi-pv-forecast-runner) | One-shot timer (every 3h) — fetches FMI PV forecast and POSTs to HCC `/api/pv/forecast` |
+| [Halo](https://github.com/eetu/halo) | Home control dashboard |
+| [fmi-pv-forecast-runner](https://github.com/eetu/fmi-pv-forecast-runner) | One-shot timer (every 3h) — fetches FMI PV forecast and POSTs to Halo `/api/pv/forecast` |
 | [Audiobookshelf](https://www.audiobookshelf.org) | Audiobook server, reads from NAS over CIFS |
 | [Navidrome](https://www.navidrome.org) | Music streaming server, reads from NAS over CIFS |
 | [Yarr](https://github.com/nkanaev/yarr) | Self-hosted RSS reader |
@@ -27,7 +27,7 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome and Syncthing behind Kanidm SSO |
 | [restic](https://restic.net) | Encrypted incremental backups of service state to the NAS, with one-shot restore on a fresh Pi |
 
-HCC, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and other services run as native binaries.
+Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and other services run as native binaries.
 
 ## Prerequisites
 
@@ -43,11 +43,11 @@ All API tokens and credentials are stored in Bitwarden under a `raspi` folder. P
 
 Non-secret service config (ports, hostnames, base URLs, room layouts, PV system params, etc.) lives in `group_data/all.py`, which is gitignored. Per-service env files merge BW-sourced secrets (`/etc/secrets/{svc}.env`, loaded via `EnvironmentFile=`) with inline plain config from `all.py` (rendered as `Environment=` lines in the unit/quadlet).
 
-For HCC, the `secret_env` dict in `all.py` maps each env var name to its hidden field on the BW `hcc` item — explicit, reviewable, and easy to audit when adding new integrations.
+For Halo, the `secret_env` dict in `all.py` maps each env var name to its hidden field on the BW `halo` item — explicit, reviewable, and easy to audit when adding new integrations.
 
 | Bitwarden item | Contains |
 |---|---|
-| `hcc` | One hidden field per `HCC["secret_env"]` value in `all.py` (e.g. `tomorrow_io_api_key`, `solis_key_id`, `solis_key_secret`, `hue_bridge_user`) |
+| `halo` | One hidden field per `HALO["secret_env"]` value in `all.py` (e.g. `tomorrow_io_api_key`, `solis_key_id`, `solis_key_secret`, `hue_bridge_user`) |
 | `pihole` | Pi-hole admin password |
 | `cifs` | NAS share credentials — per-share fields: `{share}_username`, `{share}_password` (hidden), keyed by CIFS dict entries in `all.py` |
 | `audiobookshelf` | ABS admin credentials (`login`), scoped API key written back by deploy (`api_key` hidden field — leave empty before first deploy) |
@@ -70,7 +70,7 @@ For HCC, the `secret_env` dict in `all.py` maps each env var name to its hidden 
 **1. Configure**
 
 ```sh
-cp group_data/all.example.py group_data/all.py   # fill in IPs, domain, NAS share, HCC config, PV system params
+cp group_data/all.example.py group_data/all.py   # fill in IPs, domain, NAS share, Halo config, PV system params
 cp inventory.example.py inventory.py              # fill in SSH host and key path
 ```
 
@@ -106,7 +106,7 @@ All services are accessible via HTTPS on subdomains of the configured domain. Th
 
 | URL | Service |
 |---|---|
-| `hcc.yourdomain.com` | HCC dashboard |
+| `halo.yourdomain.com` | Halo dashboard (`hcc.yourdomain.com` kept as legacy alias) |
 | `pihole.yourdomain.com` | Pi-hole admin |
 | `audiobooks.yourdomain.com` | Audiobookshelf |
 | `music.yourdomain.com` | Navidrome |
@@ -317,7 +317,7 @@ LAN-only services are blocked from reaching the internet via **nftables cgroup-b
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
-**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), HCC (Tomorrow.io, SolisCloud, Hue discovery), fmi-pv-forecast (FMI open data).
+**Not restricted** (require internet): Traefik (ACME certs), Yarr (RSS feeds), Gatus (uptime checks), Vaultwarden (SMTP), Kanidm (OIDC provider), Unbound (recursive DNS), Pi-hole (blocklists), Trivy (CVE database), DDNS (Cloudflare API), Halo (Tomorrow.io, SolisCloud, Hue discovery), fmi-pv-forecast (FMI open data).
 
 Blocked connection attempts are logged to the kernel journal with `BREACH:<service>:` prefix, including the destination IP.
 

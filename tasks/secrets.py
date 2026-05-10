@@ -5,7 +5,7 @@ import io
 from pyinfra.operations import files
 
 import vault as bw
-from group_data.all import AI, CIFS, HCC, KANIDM_OIDC_CLIENTS, NETWORK
+from group_data.all import CIFS, HALO, KANIDM_OIDC_CLIENTS, NETWORK
 
 try:
     from group_data.all import RESTIC
@@ -24,10 +24,10 @@ def _put_secret(name, content, dest, mode="600", group="root"):
     )
 
 
-_hcc_secret_lines = [
-    f"{var}={bw.bw_field('hcc', field)}" for var, field in HCC["secret_env"].items()
+_halo_secret_lines = [
+    f"{var}={bw.bw_field('halo', field)}" for var, field in HALO["secret_env"].items()
 ]
-_put_secret("hcc.env", "\n".join(_hcc_secret_lines) + "\n", "/etc/secrets/hcc.env")
+_put_secret("halo.env", "\n".join(_halo_secret_lines) + "\n", "/etc/secrets/halo.env")
 
 for _name in CIFS:
     _put_secret(f"cifs-{_name}", bw.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
@@ -117,7 +117,6 @@ _chat_oidc = KANIDM_OIDC_CLIENTS.get("chat")
 _chat_oidc_secret = bw.kanidm_oidc_secret(_chat_oidc["secret_field"]) if _chat_oidc else ""
 _chat_lines = [
     f"SESSION_KEY={bw.chat_session_key()}",
-    f"OLLAMA_URL=http://{AI['host']}:{AI['port']}",
 ]
 if _chat_oidc_secret:
     _chat_lines.extend(

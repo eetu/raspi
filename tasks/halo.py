@@ -1,4 +1,4 @@
-"""HCC: Podman Quadlet container unit, plus FMI PV forecast runner timer."""
+"""Halo: Podman Quadlet container unit, plus FMI PV forecast runner timer."""
 
 import hashlib
 import io
@@ -6,12 +6,12 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import FMI_PV_FORECAST, HCC
+from group_data.all import FMI_PV_FORECAST, HALO
 
 _base_env = {
-    "PORT": str(HCC["port"]),
-    "HOSTNAME": HCC["host"],
-    "HCC_DB_PATH": "/data/hcc.db",
+    "PORT": str(HALO["port"]),
+    "HOSTNAME": HALO["host"],
+    "HALO_DB_PATH": "/data/halo.db",
 }
 
 
@@ -25,21 +25,21 @@ def _env_line(k: str, v) -> str:
     return f'Environment="{k}={escaped}"'
 
 
-_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HCC["env"]}.items())
+_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HALO["env"]}.items())
 
 quadlet = f"""\
 [Unit]
-Description=HCC Dashboard
+Description=Halo Dashboard
 After=network-online.target
 Wants=network-online.target
 
 [Container]
-ContainerName=hcc
-Image={HCC["image"]}
+ContainerName=halo
+Image={HALO["image"]}
 Network=host
 {_env_lines}
-EnvironmentFile=/etc/secrets/hcc.env
-Volume=/var/lib/hcc:/data
+EnvironmentFile=/etc/secrets/halo.env
+Volume=/var/lib/halo:/data
 AutoUpdate=registry
 Pull=newer
 
@@ -57,8 +57,8 @@ WantedBy=multi-user.target
 _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 
 files.directory(
-    name="Create /var/lib/hcc",
-    path="/var/lib/hcc",
+    name="Create /var/lib/halo",
+    path="/var/lib/halo",
     user="root",
     group="root",
     mode="777",
@@ -75,9 +75,9 @@ files.directory(
 )
 
 files.put(
-    name="Write hcc.container quadlet",
+    name="Write halo.container quadlet",
     src=io.BytesIO(quadlet.encode()),
-    dest="/etc/containers/systemd/hcc.container",
+    dest="/etc/containers/systemd/halo.container",
     user="root",
     group="root",
     mode="644",
@@ -91,19 +91,19 @@ server.shell(
 )
 
 systemd.service(
-    name="Start HCC",
-    service="hcc",
+    name="Start Halo",
+    service="halo",
     running=True,
     daemon_reload=True,
 )
 
 server.shell(
-    name="Restart HCC if quadlet changed",
+    name="Restart Halo if quadlet changed",
     commands=[
         f"""
-        STAMP=/etc/containers/systemd/.hcc-quadlet-stamp
+        STAMP=/etc/containers/systemd/.halo-quadlet-stamp
         if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
-          systemctl restart hcc
+          systemctl restart halo
           echo '{_quadlet_hash}' > "$STAMP"
         fi
         """,
@@ -111,13 +111,13 @@ server.shell(
 )
 
 server.shell(
-    name="Restart HCC if env changed",
+    name="Restart Halo if env changed",
     commands=[
         """
-        ESTAMP=/etc/secrets/.hcc-env-stamp
-        ENV_HASH=$(sha256sum /etc/secrets/hcc.env | cut -d' ' -f1)
+        ESTAMP=/etc/secrets/.halo-env-stamp
+        ENV_HASH=$(sha256sum /etc/secrets/halo.env | cut -d' ' -f1)
         if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
-          systemctl restart hcc
+          systemctl restart halo
           echo "$ENV_HASH" > "$ESTAMP"
         fi
         """,
@@ -125,20 +125,20 @@ server.shell(
 )
 
 server.shell(
-    name="Pull latest HCC image and restart if updated",
+    name="Pull latest Halo image and restart if updated",
     commands=[
         f"""
-        NEW=$(podman pull -q {HCC["image"]})
-        CUR=$(podman inspect --format '{{{{.Image}}}}' hcc 2>/dev/null || echo "")
+        NEW=$(podman pull -q {HALO["image"]})
+        CUR=$(podman inspect --format '{{{{.Image}}}}' halo 2>/dev/null || echo "")
         if [ "$NEW" != "$CUR" ]; then
-          systemctl restart hcc
+          systemctl restart halo
         fi
         """,
     ],
 )
 
 # --- FMI PV forecast runner: oneshot service + timer ---------------------------
-# Runs ghcr.io/eetu/fmi-pv-forecast-runner, pipes JSON to HCC POST /api/pv/forecast.
+# Runs ghcr.io/eetu/fmi-pv-forecast-runner, pipes JSON to Halo POST /api/pv/forecast.
 
 _pv_env_flags = " ".join(f"-e {k}={v}" for k, v in FMI_PV_FORECAST["env"].items())
 
@@ -149,13 +149,13 @@ set -euo pipefail
 podman run --rm --pull=newer --network=host {_pv_env_flags} \\
   {FMI_PV_FORECAST["image"]} \\
 | curl -fsS -X POST -H 'Content-Type: application/json' \\
-       --data-binary @- http://{HCC["host"]}:{HCC["port"]}/api/pv/forecast
+       --data-binary @- http://{HALO["host"]}:{HALO["port"]}/api/pv/forecast
 """
 
 _pv_service_unit = """\
 [Unit]
-Description=FMI PV forecast runner — fetch and POST to HCC
-After=network-online.target hcc.service
+Description=FMI PV forecast runner — fetch and POST to Halo
+After=network-online.target halo.service
 Wants=network-online.target
 
 [Service]

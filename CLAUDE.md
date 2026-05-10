@@ -45,7 +45,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, HCC, Navidrome, Memos, Kanidm)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, Halo, Navidrome, Memos, Kanidm)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -79,7 +79,7 @@ When planning a new service, look for opportunities to clean up existing code th
 `/etc/secrets/*` on the Pi (env files written by `tasks/secrets.py`) and in
 the Bitwarden `raspi` folder. `group_data/all.py` itself contains only
 non-secret config plus references to BW field names (e.g. the `secret_env`
-dict in `HCC` maps env var → BW field name) — it is safe to read and to edit
+dict in `HALO` maps env var → BW field name) — it is safe to read and to edit
 when mirroring additions made to `group_data/all.example.py`.
 
 **Banned operations** (these dump plaintext into the conversation transcript):
@@ -115,7 +115,7 @@ uv run pyinfra inventory.py tasks/secrets.py tasks/<service>.py
 ```
 
 Examples:
-- `tasks/secrets.py tasks/hcc.py` — rotate HCC credentials
+- `tasks/secrets.py tasks/halo.py` — rotate Halo credentials
 - `tasks/secrets.py tasks/traefik.py` — rotate Cloudflare API token
 - `tasks/secrets.py tasks/cifs.py` — rotate NAS credentials (remounts shares)
 
@@ -193,7 +193,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | Port | Service |
 |---|---|
 | 80 / 443 | Traefik |
-| 3000 | HCC |
+| 3000 | Halo |
 | 3001 | Gatus |
 | 3002 | Chat |
 | 4533 | Navidrome |

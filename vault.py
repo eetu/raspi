@@ -10,7 +10,7 @@ Item structure in the 'raspi' folder:
   wireguard-portal  login  username/password   fields: api_token
   wireguard-server-key     (no login)          fields: private_key (hidden), public_key
   asus-router              SSH key item        (uses Bitwarden SSH key type)
-  hcc               login  (unused)            fields: one hidden field per HCC["secret_env"]
+  halo              login  (unused)            fields: one hidden field per HALO["secret_env"]
                                                value in group_data/all.py (e.g. tomorrow_io_api_key,
                                                solis_key_id, solis_key_secret, hue_bridge_user)
   pihole            login  password=admin_password
@@ -119,7 +119,7 @@ def bw_field(item: str, field: str) -> str:
     """Return a single hidden/text field from a Bitwarden item, or empty string.
 
     Used by tasks that map a service env var name to a BW field name via the
-    `secret_env` dict in `group_data/all.py` (see HCC for the canonical example).
+    `secret_env` dict in `group_data/all.py` (see HALO for the canonical example).
     """
     return _fields(item).get(field, "") or ""
 

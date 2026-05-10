@@ -11,8 +11,9 @@ from group_data.all import (
     AUDIOBOOKSHELF,
     BESZEL,
     CHAT,
+    COMFY,
     GATUS,
-    HCC,
+    HALO,
     KANIDM,
     KANIDM_OIDC_CLIENTS,
     MEMOS,
@@ -163,9 +164,9 @@ files.put(
 dynamic_yaml = f"""\
 http:
   routers:
-    hcc:
-      rule: "Host(`hcc.{DOMAIN}`)"
-      service: hcc
+    halo:
+      rule: "Host(`halo.{DOMAIN}`) || Host(`hcc.{DOMAIN}`)"
+      service: halo
       entryPoints: [websecure]
       tls:
         certResolver: cloudflare
@@ -312,6 +313,20 @@ http:
       tls:
         certResolver: cloudflare
 
+    # Off-Pi ComfyUI endpoint — proxies to the Mac mini's Caddy → ComfyUI
+    # chain (port 8188 on the Mini). Auth (if enabled) is enforced upstream
+    # on the Mini, not here. ComfyUI uses a WebSocket at /ws for progress
+    # events — Traefik passes WS upgrades through this same router with no
+    # extra middleware. Image generation is async (POST /prompt returns
+    # immediately, results stream over WS), so HTTP request timeouts are
+    # not a concern despite 30-50 s generation times.
+    comfy:
+      rule: "Host(`{COMFY["url_prefix"]}.{DOMAIN}`)"
+      service: comfy
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -331,10 +346,10 @@ http:
 {_oauth2_per_host_middlewares.rstrip()}
 
   services:
-    hcc:
+    halo:
       loadBalancer:
         servers:
-          - url: "http://{HCC["host"]}:{HCC["port"]}"
+          - url: "http://{HALO["host"]}:{HALO["port"]}"
 
     pihole:
       loadBalancer:
@@ -411,6 +426,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{AI["host"]}:{AI["port"]}"
+
+    comfy:
+      loadBalancer:
+        servers:
+          - url: "http://{COMFY["host"]}:{COMFY["port"]}"
 
   serversTransports:
     kanidmTransport:

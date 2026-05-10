@@ -51,8 +51,8 @@ alerting:
       send-on-resolved: true
 
 endpoints:
-  - name: HCC
-    url: "https://hcc.{DOMAIN}"
+  - name: Halo
+    url: "https://halo.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
