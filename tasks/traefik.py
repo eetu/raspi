@@ -22,8 +22,10 @@ from group_data.all import (
     NTFY,
     OAUTH2_PROXY,
     PIHOLE,
+    STT,
     SYNCTHING,
     TRAEFIK,
+    TTS,
     VAULTWARDEN,
     WGPORTAL,
     YARR,
@@ -327,6 +329,26 @@ http:
       tls:
         certResolver: cloudflare
 
+    # Off-Pi speech-to-text endpoint — proxies to the Mac mini's Caddy →
+    # whisper.cpp HTTP server (port 8190). Auth (if enabled) is enforced
+    # upstream on the Mini, not here.
+    stt:
+      rule: "Host(`{STT["url_prefix"]}.{DOMAIN}`)"
+      service: stt
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
+    # Off-Pi text-to-speech endpoint — proxies to the Mac mini's Caddy →
+    # Piper TTS (port 8192). Auth (if enabled) is enforced upstream on the
+    # Mini, not here.
+    tts:
+      rule: "Host(`{TTS["url_prefix"]}.{DOMAIN}`)"
+      service: tts
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -431,6 +453,16 @@ http:
       loadBalancer:
         servers:
           - url: "http://{COMFY["host"]}:{COMFY["port"]}"
+
+    stt:
+      loadBalancer:
+        servers:
+          - url: "http://{STT["host"]}:{STT["port"]}"
+
+    tts:
+      loadBalancer:
+        servers:
+          - url: "http://{TTS["host"]}:{TTS["port"]}"
 
   serversTransports:
     kanidmTransport:

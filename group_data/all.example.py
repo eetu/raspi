@@ -42,6 +42,24 @@ COMFY = {
     "url_prefix": "comfy",
 }
 
+# Off-Pi speech-to-text endpoint (Mac mini ../mini repo, whisper.cpp HTTP
+# server). Traefik proxies stt.{domain} to the Mini's Caddy on port 8190;
+# the Mini owns auth (toggle WHISPER["require_api_key"] in the ../mini repo).
+STT = {
+    "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
+    "port": 8190,  # Caddy gateway port for Whisper on the Mini
+    "url_prefix": "stt",
+}
+
+# Off-Pi text-to-speech endpoint (Mac mini ../mini repo, Piper TTS). Traefik
+# proxies tts.{domain} to the Mini's Caddy on port 8192; the Mini owns auth
+# (toggle PIPER["require_api_key"] in the ../mini repo).
+TTS = {
+    "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
+    "port": 8192,  # Caddy gateway port for Piper on the Mini
+    "url_prefix": "tts",
+}
+
 UNBOUND = {
     "port": 5335,
     "msg_cache_mb": 50,  # message cache — increase to 100 if you have RAM to spare

@@ -13,13 +13,15 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import AI, CHAT, COMFY
+from group_data.all import AI, CHAT, COMFY, STT, TTS
 
 _base_env = {
     "PORT": str(CHAT["port"]),
     "CHAT_DB_PATH": "/data/chat.db",
     "OLLAMA_URL": f"http://{AI['host']}:{AI['port']}",
     "COMFYUI_URL": f"http://{COMFY['host']}:{COMFY['port']}",
+    "WHISPER_URL": f"http://{STT['host']}:{STT['port']}",
+    "PIPER_URL": f"http://{TTS['host']}:{TTS['port']}",
 }
 
 
