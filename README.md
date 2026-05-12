@@ -416,3 +416,19 @@ uv run pyinfra inventory.py deploy.py
 ```
 
 Package upgrades are rate-limited to once per 24 hours. Security patches apply automatically via `unattended-upgrades`.
+
+## Future / endgame
+
+The current setup is intentionally "enough" — pyinfra is declarative-by-replay, restic covers SD-card death, and Raspberry Pi OS keeps all the Pi-specific bits (`raspi-config`, `rpi-eeprom-update`, `vcgencmd`) one `apt` away. Drift and corruption — the two problems an immutable OS would solve — are already handled.
+
+When the Pi 4 outgrows itself, the planned jump is the full stack rather than half steps:
+
+- **Hardware**: Raspberry Pi 5, 8 GB. The k8s control plane alone needs ~1–1.5 GB before any workload.
+- **OS**: [Talos Linux](https://www.talos.dev/) — immutable, API-driven (`talosctl`, no SSH), Kubernetes-only. WireGuard stays on the host via `machine.network.interfaces` (Talos has native `wireguard` interface type); everything else moves into the cluster.
+- **Workloads**: all current services as Deployments/StatefulSets. Traefik in k8s mode, wg-portal via Helm, native binaries (Yarr, Syncthing, oauth2-proxy) as pods. VuIO moves off the Pi entirely — DLNA multicast doesn't belong in a cluster.
+- **Secrets**: [external-secrets](https://external-secrets.io/) or [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets) replacing the Bitwarden-on-deploy flow.
+- **Network policy**: Cilium or Calico `NetworkPolicy` replacing the nftables + cgroup egress rules.
+- **GitOps**: Flux or Argo CD replacing `pyinfra inventory.py deploy.py`.
+- **Backups**: restic as a `CronJob` with a PVC, same encrypted repo on the NAS.
+
+Rough edges to plan for: Pi 5 HW-specific tooling is partially gone in a Talos world, and the two-deploy Kanidm OIDC bootstrap needs reshaping into a GitOps-friendly flow. Not a weekend project — a deliberate rebuild when the current box stops being enough.
