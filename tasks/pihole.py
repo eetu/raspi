@@ -6,7 +6,7 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, PIHOLE, UNBOUND
+from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, PIHOLE, SUBDOMAINS, UNBOUND
 
 # --- setupVars for unattended installer ---
 
@@ -210,9 +210,8 @@ server.shell(
 
 # --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---
 
-_subdomains = ["halo", "hcc", "pihole", "abs", "vpn", "ntfy", "status", "auth"]
 _local_dns = (
-    "\n".join(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in _subdomains) + "\n"
+    "\n".join(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in SUBDOMAINS) + "\n"
 )
 
 files.put(

@@ -69,6 +69,7 @@ UNBOUND = {
 PIHOLE = {
     "host": "127.0.0.1",
     "web_port": 8080,  # moved off 80 so Traefik owns it
+    "url_prefix": "pihole",
     "history_days": 7,  # query log retention; default is 365
     # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
     # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
@@ -98,6 +99,8 @@ CHAT = {
 HALO = {
     "host": "127.0.0.1",
     "port": 3000,
+    "url_prefix": "halo",
+    "aliases": ("hcc",),  # legacy fallback — keep until clients migrate
     "image": "ghcr.io/eetu/halo:main",
     # Plain config env vars. See halo/backend/src/settings.rs.
     # Non-string values (dicts, lists, numbers, bools) are compact-JSON-serialized
@@ -206,6 +209,7 @@ CIFS = {
 NTFY = {
     "host": "127.0.0.1",
     "port": 8090,
+    "url_prefix": "ntfy",
     "image": "docker.io/binwiederhier/ntfy:v2",
     "topic": "raspi-alerts",  # topic used by system notifications (Trivy, version checks)
 }
@@ -242,6 +246,7 @@ RESTIC = {
         "/var/lib/wg-portal",
         "/var/lib/beszel",
         "/var/lib/chat",
+        "/etc/pihole",  # gravity.db (blocklists) + custom.list (local DNS) + setupVars
         "/etc/traefik/acme.json",
     ],
     "retention": {"daily": 7, "weekly": 4, "monthly": 6},
@@ -271,6 +276,7 @@ VAULTWARDEN = {
 YARR = {
     "host": "127.0.0.1",
     "port": 7070,
+    "url_prefix": "rss",
     "version": "v2.6",
 }
 
@@ -278,12 +284,14 @@ SYNCTHING = {
     "version": "v2.0.16",
     "host": "127.0.0.1",
     "port": 8384,
+    "url_prefix": "syncthing",
     "user": "root",
 }
 
 NAVIDROME = {
     "host": "127.0.0.1",
     "port": 4533,
+    "url_prefix": "music",
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
 }
@@ -314,6 +322,7 @@ BESZEL = {
 KANIDM = {
     "host": "127.0.0.1",
     "port": 8443,
+    "url_prefix": "idm",
     # Pin to a specific release; set resolve_latest=True to track the latest 1.x.
     "image": "docker.io/kanidm/server:1.9.2",
     "resolve_latest": False,
@@ -397,3 +406,28 @@ KANIDM_PERSONS = {
         "email": "bob@bob",
     },
 }
+
+# Public subdomains, derived from each service's `url_prefix` (plus any
+# `aliases`). Single source for Cloudflare A records + Pi-hole split-DNS
+# overrides for VPN clients — adding `url_prefix` to a new service dict
+# automatically wires DNS on both sides.
+_SUBDOMAIN_SOURCES = (
+    HALO,
+    PIHOLE,
+    NTFY,
+    YARR,
+    NAVIDROME,
+    SYNCTHING,
+    KANIDM,
+    AI,
+    COMFY,
+    STT,
+    TTS,
+)
+SUBDOMAINS = tuple(
+    sorted(
+        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES}
+        | {alias for svc in _SUBDOMAIN_SOURCES for alias in svc.get("aliases", ())}
+        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values()}
+    )
+)

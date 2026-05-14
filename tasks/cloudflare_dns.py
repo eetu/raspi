@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault as bw
-from group_data.all import AI, COMFY, NETWORK, STT, TTS, WIREGUARD
+from group_data.all import NETWORK, SUBDOMAINS, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
@@ -67,28 +67,7 @@ def _ensure_record(subdomain, ip, rtype):
 def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
 
-    for subdomain in (
-        "halo",
-        "hcc",  # legacy fallback for halo — keep until clients migrate
-        "pihole",
-        "audiobooks",
-        "vpn",
-        "ntfy",
-        "status",
-        "vault",
-        "rss",
-        "music",
-        "memo",
-        "chat",
-        "syncthing",
-        "metrics",
-        "idm",
-        "auth",
-        AI["url_prefix"],
-        COMFY["url_prefix"],
-        STT["url_prefix"],
-        TTS["url_prefix"],
-    ):
+    for subdomain in SUBDOMAINS:
         _ensure_record(subdomain, lan_ip, "A")
 
     # wg AAAA record is managed by cloudflare-ddns.sh on the Pi (IPv6 via passthrough)
