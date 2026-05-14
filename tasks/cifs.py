@@ -1,35 +1,30 @@
-"""CIFS automount: systemd .mount + .automount units for NAS shares."""
+"""CIFS automount: systemd .mount + .automount units for NAS shares.
+
+Shares use the alias form `//<alias>/<path>` where `<alias>` is a key from
+HOSTS in group_data/all.py. /etc/hosts maps that alias to a live IP:
+- IP-valued HOSTS entries are written by tasks/bootstrap.py.
+- mDNS-valued entries are kept fresh by tasks/host_discover.py (boot + 5min).
+Either way, mount.cifs resolves the alias from /etc/hosts, so DHCP drift
+on the NAS is invisible to these units.
+"""
 
 import io
 
 from pyinfra.operations import files, systemd
 
-from group_data.all import CIFS, HOSTS
-
-
-def _resolve_share(share: str) -> str:
-    # Replace `//hostname/path` with `//ip/path` using HOSTS so mount.cifs
-    # doesn't depend on DNS / /etc/hosts being readable at boot. mount.cifs
-    # runs early under network-online.target and intermittently fails to
-    # resolve the NAS hostname even when /etc/hosts has the entry.
-    if not share.startswith("//"):
-        return share
-    host, sep, path = share[2:].partition("/")
-    return f"//{HOSTS.get(host, host)}{sep}{path}"
-
+from group_data.all import CIFS
 
 for _name, _share in CIFS.items():
     _unit = _share["mountpoint"].lstrip("/").replace("/", "-")  # e.g. "mnt-audiobooks"
-    _what = _resolve_share(_share["share"])
 
     _mount_unit = f"""\
 [Unit]
 Description={_name.capitalize()} NAS share
-After=network-online.target
-Wants=network-online.target
+After=network-online.target hosts-discover.service
+Wants=network-online.target hosts-discover.service
 
 [Mount]
-What={_what}
+What={_share["share"]}
 Where={_share["mountpoint"]}
 Type=cifs
 Options=credentials=/etc/secrets/cifs-{_name},vers={_share["vers"]},sec={_share["sec"]},_netdev,uid=1000,gid=1000,file_mode=0755,dir_mode=0755
@@ -41,8 +36,8 @@ WantedBy=multi-user.target
     _automount_unit = f"""\
 [Unit]
 Description={_name.capitalize()} NAS automount
-After=network-online.target
-Wants=network-online.target
+After=network-online.target hosts-discover.service
+Wants=network-online.target hosts-discover.service
 
 [Automount]
 Where={_share["mountpoint"]}

@@ -163,34 +163,40 @@ TRAEFIK = {
     "version": "v3.6.12",
 }
 
+# Aliases written into /etc/hosts. Values may be either a literal IP (e.g.
+# "192.168.1.50", resolved verbatim by tasks/bootstrap.py) or an mDNS hostname
+# ending in `.local` (resolved on the Pi by tasks/host_discover.py at boot and
+# every 5 minutes). Pick mDNS for devices whose DHCP lease drifts — avahi
+# tracks the live IP for you. Containers that need to resolve these aliases
+# mount /etc/hosts read-only.
 HOSTS = {
-    "nasname": "192.168.x.y",  # NAS hostname → IP; add any host that needs a static /etc/hosts entry
+    "zenwifi": "your-nas.local",  # mDNS form; or use a literal IP if you prefer
 }
 
 SHELL = "/usr/bin/fish"  # /usr/bin/zsh, usr/bin/bash
 
 CIFS = {
     "audiobooks": {
-        "share": "//nasname/audiobooks",  # NetBIOS hostname of your NAS
+        "share": "//zenwifi/audiobooks",  # alias from HOSTS above
         "mountpoint": "/mnt/audiobooks",
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
     "music": {
-        "share": "//nasname/music",
+        "share": "//zenwifi/music",
         "mountpoint": "/mnt/music",
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
     "movies": {
-        "share": "//nasname/movies",
+        "share": "//zenwifi/movies",
         "mountpoint": "/mnt/movies",
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
     # Used by tasks/restic.py for the encrypted backup repository.
     "backups": {
-        "share": "//nasname/backups",
+        "share": "//zenwifi/backups",
         "mountpoint": "/mnt/backups",
         "vers": "2.0",
         "sec": "ntlmsspi",

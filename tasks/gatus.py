@@ -9,7 +9,6 @@ import vault as bw
 from group_data.all import (
     CIFS,
     GATUS,
-    HOSTS,
     KANIDM_OIDC_CLIENTS,
     NAVIDROME,
     NETWORK,
@@ -29,10 +28,10 @@ _image = (
 _oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
 _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
-# NAS healthcheck host — resolve via HOSTS dict so the gatus container's
-# isolated /etc/hosts doesn't have to know the NAS hostname.
-_nas_host_raw = CIFS["audiobooks"]["share"].split("/")[2]
-_nas_host = HOSTS.get(_nas_host_raw, _nas_host_raw)
+# NAS healthcheck host — the alias from HOSTS (e.g. "zenwifi"). The container
+# mounts the Pi's /etc/hosts read-only (see quadlet below), so it resolves the
+# alias via the same entry that tasks/host_discover.py keeps fresh.
+_nas_host = CIFS["audiobooks"]["share"].split("/")[2]
 
 _navidrome_url = (
     f"http://{NAVIDROME['host']}:{NAVIDROME['port']}"
@@ -213,6 +212,7 @@ Image={_image}
 Network=host
 Volume=/etc/gatus/config.yaml:/config/config.yaml:ro
 Volume=/var/lib/gatus:/data
+Volume=/etc/hosts:/etc/hosts:ro
 AddCapability=CAP_NET_RAW
 
 [Service]
