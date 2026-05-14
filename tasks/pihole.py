@@ -101,8 +101,10 @@ _blocklist_hash = hashlib.sha256("".join(PIHOLE["blocklists"]).encode()).hexdige
 for url in PIHOLE["blocklists"]:
     server.shell(
         name=f"Add blocklist: {url.split('/')[-1]}",
+        # pihole-FTL holds gravity.db open; busy-timeout makes sqlite wait
+        # for the lock instead of failing immediately ("database is locked").
         commands=[
-            f"""sqlite3 /etc/pihole/gravity.db \
+            f"""sqlite3 -cmd ".timeout 10000" /etc/pihole/gravity.db \
 "INSERT OR IGNORE INTO adlist (address, enabled, comment) \
 VALUES ('{url}', 1, 'hagezi')" """,
         ],
