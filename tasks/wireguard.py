@@ -64,21 +64,14 @@ files.put(
 )
 
 # --- Kernel modules ---
-# ip6table_nat must be loaded before wg-quick@wg0 starts, otherwise
-# ip6tables MASQUERADE fails at boot (module not yet auto-loaded).
-
-files.put(
-    name="Load ip6table_nat at boot",
-    src=io.BytesIO(b"ip6table_nat\n"),
-    dest="/etc/modules-load.d/ip6table_nat.conf",
-    user="root",
-    group="root",
-    mode="644",
-)
-
-server.shell(
-    name="Load ip6table_nat now",
-    commands=["modprobe ip6table_nat"],
+# Raspberry Pi kernel 6.18+ dropped the legacy `ip6table_nat` module; ip6
+# NAT now lives in nftables (iptables-nft translates the ip6tables CLI
+# calls to nft rules in the `ip6 nat` table). Remove the stale modules-load
+# entry left over from older kernels so boot doesn't log a modprobe error.
+files.file(
+    name="Remove stale ip6table_nat modules-load entry",
+    path="/etc/modules-load.d/ip6table_nat.conf",
+    present=False,
 )
 
 # --- IP forwarding ---
