@@ -16,6 +16,7 @@ from group_data.all import (
     HALO,
     KANIDM,
     KANIDM_OIDC_CLIENTS,
+    MCP_CHAT,
     MEMOS,
     NAVIDROME,
     NETWORK,
@@ -349,6 +350,16 @@ http:
       tls:
         certResolver: cloudflare
 
+    # chat-mcp: streamable-HTTP MCP bridge for chat's img2img / inpaint.
+    # LAN/VPN-only — `mcp-chat` lives in INTERNAL_SUBDOMAINS, so there's no
+    # Cloudflare A record. Wildcard cert covers it regardless.
+    mcp-chat:
+      rule: "Host(`{MCP_CHAT["url_prefix"]}.{DOMAIN}`)"
+      service: mcp-chat
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
   middlewares:
     compress:
       compress: {{}}
@@ -463,6 +474,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{TTS["host"]}:{TTS["port"]}"
+
+    mcp-chat:
+      loadBalancer:
+        servers:
+          - url: "http://{MCP_CHAT["host"]}:{MCP_CHAT["port"]}"
 
   serversTransports:
     kanidmTransport:

@@ -25,6 +25,7 @@ RESTRICTED = [
     "beszel-hub",
     "beszel-agent",
     "chat",
+    "mcp-chat",
     "navidrome",
     "ntfy",
     "oauth2-proxy",

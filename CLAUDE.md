@@ -67,7 +67,7 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
 - [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
-- [ ] `tasks/cloudflare_dns.py` — add subdomain to the list in `configure_dns()` (if web-accessible)
+- [ ] `group_data/all.py` — append the service dict to `_SUBDOMAIN_SOURCES` (if web-accessible). DNS wiring is derived from each dict's optional `"public": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/VPN clients). Wildcard TLS cert covers both. Be deliberate when adding `public: True` — every public subdomain is a fresh internet-facing attack surface.
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
 - [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
@@ -125,7 +125,7 @@ Examples:
 All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
 
 ### Network egress restrictions
-LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, navidrome, ntfy, oauth2-proxy, syncthing, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
+LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, mcp-chat, navidrome, ntfy, oauth2-proxy, syncthing, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
 
 ### Network breach monitoring
 A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
@@ -206,6 +206,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 8088 | Pi-hole DNS |
 | 8090 | ntfy |
 | 8091 | Beszel hub |
+| 8092 | chat-mcp |
 | 8443 | Kanidm (HTTPS) |
 | 8096 | VuIO (DLNA) |
 | 8888 | wg-portal |

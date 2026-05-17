@@ -210,6 +210,7 @@ NTFY = {
     "host": "127.0.0.1",
     "port": 8090,
     "url_prefix": "ntfy",
+    "public": True,  # external push sources (CI webhooks, alerts) need to reach it
     "image": "docker.io/binwiederhier/ntfy:v2",
     "topic": "raspi-alerts",  # topic used by system notifications (Trivy, version checks)
 }
@@ -319,6 +320,16 @@ BESZEL = {
     "agent_image": "docker.io/henrygd/beszel-agent:0.18.7",  # Podman Quadlet
 }
 
+MCP_CHAT = {
+    "host": "127.0.0.1",
+    "port": 8092,  # `:main` floats — Pull=newer + AutoUpdate=registry track ghcr.
+    "url_prefix": "mcp-chat",
+    "image": "ghcr.io/eetu/chat-mcp:main",
+    # MCP bridge for chat's img2img + inpaint endpoints. Speaks streamable-HTTP
+    # MCP at `/mcp`. CHAT_MCP_API_KEY (backend) and CHAT_MCP_SERVER_KEY (this
+    # service) are both opt-in — leave unset while we trust the LAN perimeter.
+}
+
 KANIDM = {
     "host": "127.0.0.1",
     "port": 8443,
@@ -341,6 +352,7 @@ KANIDM_OIDC_CLIENTS = {
     "vaultwarden": {
         "display_name": "Vaultwarden Password Manager",
         "url_prefix": "vault",  # → https://vault.{domain}
+        "public": True,  # mobile Bitwarden client needs reachable URL on cellular
         "redirect_path": "/identity/connect/oidc-signin",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "vw_client_secret",
@@ -407,10 +419,14 @@ KANIDM_PERSONS = {
     },
 }
 
-# Public subdomains, derived from each service's `url_prefix` (plus any
-# `aliases`). Single source for Cloudflare A records + Pi-hole split-DNS
-# overrides for VPN clients — adding `url_prefix` to a new service dict
-# automatically wires DNS on both sides.
+# Subdomain registry, derived from each service's `url_prefix` (plus any
+# `aliases`). Default is LAN/VPN-only — services opt into the public
+# internet by setting `"public": True`. `PUBLIC_SUBDOMAINS` (those
+# opt-ins) get Cloudflare A records + Pi-hole split-DNS overrides;
+# everything else lands in `INTERNAL_SUBDOMAINS` and only gets the
+# Pi-hole override, so it resolves for LAN/VPN clients but is invisible
+# to the public internet. Wildcard TLS cert covers both — it's issued
+# via DNS-01 and doesn't require any A record per subdomain.
 _SUBDOMAIN_SOURCES = (
     HALO,
     PIHOLE,
@@ -423,11 +439,30 @@ _SUBDOMAIN_SOURCES = (
     COMFY,
     STT,
     TTS,
+    MCP_CHAT,
 )
-SUBDOMAINS = tuple(
+PUBLIC_SUBDOMAINS = tuple(
     sorted(
-        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES}
-        | {alias for svc in _SUBDOMAIN_SOURCES for alias in svc.get("aliases", ())}
-        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values()}
+        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if svc.get("public")}
+        | {
+            alias
+            for svc in _SUBDOMAIN_SOURCES
+            if svc.get("public")
+            for alias in svc.get("aliases", ())
+        }
+        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if c.get("public")}
     )
 )
+INTERNAL_SUBDOMAINS = tuple(
+    sorted(
+        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if not svc.get("public")}
+        | {
+            alias
+            for svc in _SUBDOMAIN_SOURCES
+            if not svc.get("public")
+            for alias in svc.get("aliases", ())
+        }
+        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if not c.get("public")}
+    )
+)
+SUBDOMAINS = tuple(sorted(set(PUBLIC_SUBDOMAINS) | set(INTERNAL_SUBDOMAINS)))

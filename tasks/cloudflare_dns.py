@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault as bw
-from group_data.all import NETWORK, SUBDOMAINS, WIREGUARD
+from group_data.all import NETWORK, PUBLIC_SUBDOMAINS, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
@@ -64,16 +64,41 @@ def _ensure_record(subdomain, ip, rtype):
         logger.info(f"DNS created {fqdn} {rtype} → {ip}")
 
 
+def _reap_orphan_records(lan_ip, protected):
+    # Delete A records that point at our LAN IP but aren't in PUBLIC_SUBDOMAINS
+    # (or wg, owned by tasks/ddns.py). These accumulate when a service flips
+    # from public → internal and its old public A record would otherwise leak
+    # the LAN IP + service inventory via DNS enumeration. Scope is intentionally
+    # narrow: same `content` as what this task creates, only A records, never
+    # the apex.
+    suffix = f".{DOMAIN}"
+    records = _cf("GET", f"/dns_records?type=A&content={lan_ip}&per_page=100")
+    for rec in records:
+        name = rec["name"]
+        if not name.endswith(suffix) or name == DOMAIN:
+            continue
+        sub = name[: -len(suffix)]
+        if sub in protected:
+            continue
+        _cf("DELETE", f"/dns_records/{rec['id']}")
+        logger.info(f"DNS reaped {name} A (not in PUBLIC_SUBDOMAINS)")
+
+
 def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
 
-    for subdomain in SUBDOMAINS:
+    # Internal-only subdomains (everything not flagged `public=True`) are
+    # excluded — Pi-hole still resolves them for LAN/VPN clients via
+    # /etc/pihole/custom.list.
+    for subdomain in PUBLIC_SUBDOMAINS:
         _ensure_record(subdomain, lan_ip, "A")
 
     # wg AAAA record is managed by cloudflare-ddns.sh on the Pi (IPv6 via passthrough)
     if WIREGUARD.get("public_ipv4"):
         public_ip = _public_ip()
         _ensure_record("wg", public_ip, "A")
+
+    _reap_orphan_records(lan_ip, set(PUBLIC_SUBDOMAINS) | {"wg"})
 
 
 python.call(name="Configure Cloudflare DNS records", function=configure_dns)
