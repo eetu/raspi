@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 
 from pyinfra.operations import files, server, systemd
 
@@ -210,17 +211,34 @@ server.shell(
     ],
 )
 
-# --- Local DNS: resolve internal subdomains to WireGuard IP (split DNS for VPN clients) ---
+# --- Local DNS: resolve internal subdomains to LAN IP (split DNS for LAN + VPN clients) ---
+# Pi-hole v6 auto-generates /etc/pihole/hosts/custom.list from the `dns.hosts`
+# array in pihole.toml; the legacy /etc/pihole/custom.list path is silently
+# ignored. `pihole-FTL --config dns.hosts <json>` is the supported edit path
+# — the CLI rejects TOML literal syntax. pihole-FTL needs a restart for the
+# new array to land in dnsmasq's view.
+_hosts_value = json.dumps(
+    sorted(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in SUBDOMAINS)
+)
+_hosts_hash = hashlib.sha256(_hosts_value.encode()).hexdigest()
 
-_local_dns = (
-    "\n".join(f"{NETWORK['lan_ip']} {sub}.{NETWORK['domain']}" for sub in SUBDOMAINS) + "\n"
+server.shell(
+    name="Sync Pi-hole dns.hosts split-DNS entries",
+    commands=[
+        f"""
+        STAMP=/etc/pihole/.dns-hosts-stamp
+        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_hosts_hash}" ]; then
+          pihole-FTL --config dns.hosts '{_hosts_value}'
+          systemctl restart pihole-FTL
+          echo '{_hosts_hash}' > "$STAMP"
+        fi
+        """,
+    ],
 )
 
-files.put(
-    name="Write Pi-hole local DNS records",
-    src=io.BytesIO(_local_dns.encode()),
-    dest="/etc/pihole/custom.list",
-    user="root",
-    group="root",
-    mode="644",
+# Clean up the legacy v5 path so the next reader doesn't see stale data.
+files.file(
+    name="Remove legacy /etc/pihole/custom.list",
+    path="/etc/pihole/custom.list",
+    present=False,
 )
