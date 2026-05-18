@@ -113,10 +113,14 @@ _put_secret("memos.env", "\n".join(_memos_lines) + "\n", "/etc/secrets/memos.env
 # --- Chat ---
 # SESSION_KEY is auto-generated on first deploy. OIDC vars are written only
 # once Kanidm has produced the client secret on a previous deploy.
+# CHAT_MCP_API_KEY gates /api/v1/* against unauthenticated callers — mcp-chat
+# sends the same value as Bearer on every hop.
 _chat_oidc = KANIDM_OIDC_CLIENTS.get("chat")
 _chat_oidc_secret = bw.kanidm_oidc_secret(_chat_oidc["secret_field"]) if _chat_oidc else ""
+_chat_mcp_api_key = bw.chat_mcp_api_key()
 _chat_lines = [
     f"SESSION_KEY={bw.chat_session_key()}",
+    f"CHAT_MCP_API_KEY={_chat_mcp_api_key}",
 ]
 if _chat_oidc_secret:
     _chat_lines.extend(
@@ -128,6 +132,15 @@ if _chat_oidc_secret:
         ]
     )
 _put_secret("chat.env", "\n".join(_chat_lines) + "\n", "/etc/secrets/chat.env")
+
+# --- chat-mcp ---
+# Forwards CHAT_MCP_API_KEY to the chat backend hop and gates inbound /mcp
+# clients with CHAT_MCP_SERVER_KEY. Both are auto-generated in BW.
+_put_secret(
+    "mcp-chat.env",
+    f"CHAT_MCP_API_KEY={_chat_mcp_api_key}\nCHAT_MCP_SERVER_KEY={bw.chat_mcp_server_key()}\n",
+    "/etc/secrets/mcp-chat.env",
+)
 
 # --- restic ---
 # Sourced by /usr/local/sbin/raspi-backup; password may contain special chars

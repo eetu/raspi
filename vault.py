@@ -48,7 +48,11 @@ Item structure in the 'raspi' folder:
                                                  and persisted so sessions survive restarts)
   chat              login  (unused)             fields: session_key (hidden, 64-byte hex; generated
                                                  locally on first deploy and persisted so SSE/auth
-                                                 sessions survive restarts)
+                                                 sessions survive restarts);
+                                               mcp_api_key (hidden, 32-byte hex; auto-generated;
+                                                 gates the mcp-chat → chat-backend hop on /api/v1/*);
+                                               mcp_server_key (hidden, 32-byte hex; auto-generated;
+                                                 gates inbound Bearer auth on chat-mcp's /mcp)
   restic            login  password=repo_password (used to encrypt the restic backup repo;
                                                   treat as load-bearing — losing this means
                                                   losing access to all snapshots)
@@ -262,13 +266,29 @@ def chat_session_key() -> str:
     """Return chat SESSION_KEY (64-byte hex), generating + persisting on first call.
 
     A stable key is required so cookie-encrypted sessions survive restarts."""
-    existing = _fields("chat").get("session_key", "") or ""
+    return _chat_hex_field("session_key", 64)
+
+
+def chat_mcp_api_key() -> str:
+    """Bearer for the mcp-chat → chat-backend hop on /api/v1/*."""
+    return _chat_hex_field("mcp_api_key", 32)
+
+
+def chat_mcp_server_key() -> str:
+    """Bearer that gates inbound clients hitting chat-mcp's /mcp."""
+    return _chat_hex_field("mcp_server_key", 32)
+
+
+def _chat_hex_field(field: str, nbytes: int) -> str:
+    """Return an auto-generated hex field from the `chat` BW item, creating it
+    on first call. Stable values keep sessions/auth surviving restarts."""
+    existing = _fields("chat").get(field, "") or ""
     if existing:
         return existing
-    new = secrets.token_hex(64)
+    new = secrets.token_hex(nbytes)
     item = json.loads(json.dumps(_get_item("chat")))  # copy
     fields = item.get("fields") or []
-    fields.append({"name": "session_key", "value": new, "type": 1})
+    fields.append({"name": field, "value": new, "type": 1})
     item["fields"] = fields
     _edit_item(item)
     return new

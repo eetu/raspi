@@ -2,13 +2,14 @@
 
 Speaks streamable-HTTP MCP at `/mcp` on 127.0.0.1:{MCP_CHAT.port} and forwards
 img2img / inpaint calls to the chat backend (CHAT) on the same Pi. Traefik
-proxies `mcp-chat.{domain}` to it, but only LAN/VPN clients can resolve that
-name (the subdomain is in INTERNAL_SUBDOMAINS, so Cloudflare has no record).
+proxies `mcp-chat.{domain}` to it. The subdomain has a public DNS A record
+pointing at the LAN IP, so it resolves anywhere but only LAN/VPN clients can
+actually reach it.
 
-Auth is opt-in:
-- `CHAT_MCP_SERVER_KEY` (this service) gates inbound /mcp Bearer auth.
-- `CHAT_MCP_API_KEY` (chat backend) gates the MCP→backend hop.
-Both are unset for now — LAN perimeter is the only auth layer.
+Auth at both hops, sourced from `/etc/secrets/mcp-chat.env`:
+- `CHAT_MCP_SERVER_KEY` gates inbound clients hitting /mcp (Bearer).
+- `CHAT_MCP_API_KEY` is the Bearer this service sends to chat-backend
+  /api/v1/* — must match `CHAT_MCP_API_KEY` in /etc/secrets/chat.env.
 """
 
 import hashlib
@@ -28,13 +29,6 @@ env = {
     "CHAT_MCP_BIND": "127.0.0.1",
     "CHAT_BACKEND_URL": f"http://{CHAT['host']}:{CHAT['port']}",
     "RUST_LOG": "chat_mcp=info",
-    # Upstream bug: chat-mcp's BackendConfig::from_env() hard-requires this
-    # env var even though chat-backend's mcp_api_key is `Option<String>` and
-    # accepts unauthenticated calls when None. An empty value satisfies
-    # `std::env::var`, and the resulting `Authorization: Bearer ` is ignored
-    # by the backend. Drop this entry once the client is patched to make
-    # api_key optional too.
-    "CHAT_MCP_API_KEY": "",
 }
 _env_lines = "\n".join(f'Environment="{k}={v}"' for k, v in env.items())
 
@@ -48,6 +42,7 @@ Wants=network-online.target chat.service
 ContainerName=mcp-chat
 Image={MCP_CHAT["image"]}
 Network=host
+EnvironmentFile=/etc/secrets/mcp-chat.env
 {_env_lines}
 AutoUpdate=registry
 Pull=newer
@@ -96,6 +91,20 @@ server.shell(
         if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
           systemctl restart mcp-chat
           echo '{_quadlet_hash}' > "$STAMP"
+        fi
+        """,
+    ],
+)
+
+server.shell(
+    name="Restart mcp-chat if env changed",
+    commands=[
+        """
+        ESTAMP=/etc/secrets/.mcp-chat-env-stamp
+        ENV_HASH=$(sha256sum /etc/secrets/mcp-chat.env | cut -d' ' -f1)
+        if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
+          systemctl restart mcp-chat
+          echo "$ENV_HASH" > "$ESTAMP"
         fi
         """,
     ],
