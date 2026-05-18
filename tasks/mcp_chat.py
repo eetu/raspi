@@ -17,7 +17,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import CHAT, MCP_CHAT
+from group_data.all import CHAT, MCP_CHAT, NETWORK
 
 env = {
     "CHAT_MCP_TRANSPORT": "http",
@@ -28,6 +28,10 @@ env = {
     # constrain it. Bind loopback only so Traefik is the sole entry point.
     "CHAT_MCP_BIND": "127.0.0.1",
     "CHAT_BACKEND_URL": f"http://{CHAT['host']}:{CHAT['port']}",
+    # URL agents see in tool results when fetching rendered images from the
+    # backend's /api/v1/images/{uuid}.png buffer. Loopback is unreachable for
+    # the agent, so point at the Traefik-fronted chat host instead.
+    "CHAT_BACKEND_PUBLIC_URL": f"https://chat.{NETWORK['domain']}",
     "RUST_LOG": "chat_mcp=info",
 }
 _env_lines = "\n".join(f'Environment="{k}={v}"' for k, v in env.items())
