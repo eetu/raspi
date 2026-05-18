@@ -325,6 +325,10 @@ MCP_CHAT = {
     "port": 8092,  # `:main` floats — Pull=newer + AutoUpdate=registry track ghcr.
     "url_prefix": "mcp-chat",
     "image": "ghcr.io/eetu/chat-mcp:main",
+    # Public DNS A record points to LAN IP — name resolves anywhere but only
+    # LAN/VPN clients can reach it. Lets roaming machines (cellular hotspot)
+    # resolve via their default resolver instead of needing Pi-hole/WG.
+    "public": True,
     # MCP bridge for chat's img2img + inpaint endpoints. Speaks streamable-HTTP
     # MCP at `/mcp`. CHAT_MCP_API_KEY (backend) and CHAT_MCP_SERVER_KEY (this
     # service) are both opt-in — leave unset while we trust the LAN perimeter.
