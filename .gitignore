@@ -18,5 +18,7 @@ PLAN.md
 
 *.log
 
+.resolved-tags.json
+
 .stfolder/
 .stignore

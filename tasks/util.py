@@ -2,8 +2,28 @@
 
 import json
 import re
+import sys
+import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterable
+from pathlib import Path
+
+_CACHE_PATH = Path(__file__).resolve().parent.parent / ".resolved-tags.json"
+
+
+def _read_cache() -> dict[str, str]:
+    try:
+        return json.loads(_CACHE_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _write_cache(data: dict[str, str]) -> None:
+    try:
+        _CACHE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True))
+    except OSError as e:
+        print(f"WARN: could not write {_CACHE_PATH}: {e}", file=sys.stderr)
 
 
 def restart_if_changed(
@@ -54,8 +74,32 @@ def resolve_latest(repo: str, image: str) -> str:
         f"https://api.github.com/repos/{repo}/releases?per_page=10",
         headers={"Accept": "application/vnd.github+json"},
     )
-    with urllib.request.urlopen(req) as r:
-        releases = json.loads(r.read())
+    backoffs = (0.0, 0.5, 1.0)
+    last_err: Exception | None = None
+    releases = None
+    for delay in backoffs:
+        if delay:
+            time.sleep(delay)
+        try:
+            with urllib.request.urlopen(req, timeout=4) as r:
+                releases = json.loads(r.read())
+            break
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+    cache = _read_cache()
+    if releases is None:
+        cached = cache.get(repo)
+        if cached:
+            print(
+                f"WARN: GitHub API unreachable for {repo} ({last_err}); using cached {cached}",
+                file=sys.stderr,
+            )
+            return cached
+        print(
+            f"WARN: GitHub API unreachable for {repo} ({last_err}); no cache, falling back to pinned {image}",
+            file=sys.stderr,
+        )
+        return image
 
     matching = [r["tag_name"] for r in releases if pattern.match(r["tag_name"])]
     if not matching:
@@ -66,4 +110,8 @@ def resolve_latest(repo: str, image: str) -> str:
     if not original_tag.startswith("v"):
         tag = tag.lstrip("v")
     base = image.rsplit(":", 1)[0]
-    return f"{base}:{tag}"
+    resolved = f"{base}:{tag}"
+    if cache.get(repo) != resolved:
+        cache[repo] = resolved
+        _write_cache(cache)
+    return resolved
