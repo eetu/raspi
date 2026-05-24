@@ -96,6 +96,41 @@ CHAT = {
     },
 }
 
+# Scribe — self-hosted Audible library mirror. Talks to shim over loopback,
+# ships ffmpeg work to scribe-press on the mini. The library/ tree on the
+# CIFS audiobooks share is what audiobookshelf reads; original/ is the
+# cold-storage AAXC tree (ABS never sees it).
+SCRIBE = {
+    "host": "127.0.0.1",
+    "port": 3003,
+    "url_prefix": "scribe",
+    "image": "ghcr.io/eetu/scribe:main",
+    "env": {
+        # Press worker on the mini — set when mini IaC has been deployed.
+        # Bearer goes in `secret_env` below.
+        # "SCRIBE_PRESS_URL": "https://scribe-press.<mini-host>:3005",
+        "SCRIBE_AUTO_ENQUEUE": "1",
+        "SCRIBE_POLL_INTERVAL_MIN": "60",
+        "SCRIBE_OPEN_REGISTRATION": "0",
+        "SCRIBE_ADMIN_EMAIL": "",
+    },
+    "secret_env": {
+        # Bearer for the scribe → scribe-press hop. Same value lives in the
+        # mini's `mini/scribe-press` BW item under `api_key`. Paste it into
+        # raspi's `scribe` BW item under `press_token`.
+        "SCRIBE_PRESS_TOKEN": "press_token",
+        "ABS_TOKEN": "abs_token",
+    },
+}
+
+# Shim — Audible auth + library + voucher sidecar (loopback-only).
+SHIM = {
+    "host": "127.0.0.1",
+    "port": 3004,
+    "image": "ghcr.io/eetu/scribe-shim:main",
+    "env": {},
+}
+
 HALO = {
     "host": "127.0.0.1",
     "port": 3000,
@@ -247,6 +282,8 @@ RESTIC = {
         "/var/lib/wg-portal",
         "/var/lib/beszel",
         "/var/lib/chat",
+        "/var/lib/scribe",
+        "/var/lib/shim",
         "/etc/pihole",  # gravity.db (blocklists) + custom.list (local DNS) + setupVars
         "/etc/traefik/acme.json",
     ],
@@ -410,6 +447,13 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "chat_client_secret",
+    },
+    "scribe": {
+        "display_name": "Scribe",
+        "url_prefix": "scribe",
+        "redirect_path": "/auth/callback",
+        "scopes": ["openid", "profile", "email"],
+        "secret_field": "scribe_client_secret",
     },
 }
 

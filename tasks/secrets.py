@@ -142,6 +142,37 @@ _put_secret(
     "/etc/secrets/mcp-chat.env",
 )
 
+# --- Scribe ---
+# Same pattern as chat. OIDC vars are written only once Kanidm has produced
+# the client secret on a previous deploy. press_token + abs_token are
+# hand-pasted on the `scribe` BW item (deploy raises if either is empty).
+_scribe_oidc = KANIDM_OIDC_CLIENTS.get("scribe")
+_scribe_oidc_secret = bw.kanidm_oidc_secret(_scribe_oidc["secret_field"]) if _scribe_oidc else ""
+_scribe_lines = [
+    f"SESSION_KEY={bw.scribe_session_key()}",
+    f"SCRIBE_PRESS_TOKEN={bw.scribe_press_token()}",
+    f"ABS_TOKEN={bw.scribe_abs_token()}",
+]
+if _scribe_oidc_secret:
+    _scribe_lines.extend(
+        [
+            f"OIDC_ISSUER=https://idm.{DOMAIN}/oauth2/openid/scribe",
+            "OIDC_CLIENT_ID=scribe",
+            f"OIDC_CLIENT_SECRET={_scribe_oidc_secret}",
+            f"OIDC_REDIRECT_URL=https://scribe.{DOMAIN}/auth/callback",
+        ]
+    )
+_put_secret("scribe.env", "\n".join(_scribe_lines) + "\n", "/etc/secrets/scribe.env")
+
+# --- Shim (Audible sidecar) ---
+# Single encryption passphrase used for ALL on-disk account files.
+# Auto-generated on first deploy and persisted to BW so it survives restarts.
+_put_secret(
+    "shim.env",
+    f"SHIM_PASSPHRASE={bw.shim_passphrase()}\n",
+    "/etc/secrets/shim.env",
+)
+
 # --- restic ---
 # Sourced by /usr/local/sbin/raspi-backup; password may contain special chars
 # so single-quote-escape it for `source` to handle correctly.

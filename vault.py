@@ -53,6 +53,14 @@ Item structure in the 'raspi' folder:
                                                  gates the mcp-chat → chat-backend hop on /api/v1/*);
                                                mcp_server_key (hidden, 32-byte hex; auto-generated;
                                                  gates inbound Bearer auth on chat-mcp's /mcp)
+  scribe            login  (unused)             fields: session_key (hidden, 64-byte hex; auto-
+                                                 generated; signs scribe session cookies);
+                                               press_token (hidden, hand-pasted; must match
+                                                 `mini/scribe-press` item's `api_key` field);
+                                               abs_token (hidden, hand-issued ABS API token used
+                                                 to POST /api/libraries/{id}/scan);
+                                               shim_passphrase (hidden, 48-byte hex; auto-
+                                                 generated; encrypts shim's on-disk Audible auth)
   restic            login  password=repo_password (used to encrypt the restic backup repo;
                                                   treat as load-bearing — losing this means
                                                   losing access to all snapshots)
@@ -277,6 +285,49 @@ def chat_mcp_api_key() -> str:
 def chat_mcp_server_key() -> str:
     """Bearer that gates inbound clients hitting chat-mcp's /mcp."""
     return _chat_hex_field("mcp_server_key", 32)
+
+
+def scribe_session_key() -> str:
+    """Return scribe SESSION_KEY (64-byte hex), generating + persisting on first call.
+
+    A stable key is required so signed session cookies survive restarts."""
+    return _scribe_hex_field("session_key", 64)
+
+
+def scribe_press_token() -> str:
+    """Bearer for the scribe → scribe-press hop. Must match the same value
+    in the mini's `mini/scribe-press` BW item under `api_key` — the mini
+    deploy reads from there, raspi from here. Paste both sides identically."""
+    return _fields("scribe").get("press_token", "") or ""
+
+
+def scribe_abs_token() -> str:
+    """API token for audiobookshelf — used by scribe to POST /api/libraries/{id}/scan
+    after each completed download. Hand-issued via ABS root login + paste into BW."""
+    return _fields("scribe").get("abs_token", "") or ""
+
+
+def _scribe_hex_field(field: str, nbytes: int) -> str:
+    """Auto-generated hex field on the `scribe` BW item, persisted on first call."""
+    existing = _fields("scribe").get(field, "") or ""
+    if existing:
+        return existing
+    new = secrets.token_hex(nbytes)
+    item = json.loads(json.dumps(_get_item("scribe")))  # copy
+    fields = item.get("fields") or []
+    fields.append({"name": field, "value": new, "type": 1})
+    item["fields"] = fields
+    _edit_item(item)
+    return new
+
+
+def shim_passphrase() -> str:
+    """Encryption passphrase for shim's on-disk Audible auth files.
+    Stored as a custom field on the `scribe` BW item — shim is a scribe
+    sidecar, so the credential lives with its owner. Auto-generated on
+    first call; stable across deploys so credentials persist across
+    restarts."""
+    return _scribe_hex_field("shim_passphrase", 48)
 
 
 def _chat_hex_field(field: str, nbytes: int) -> str:

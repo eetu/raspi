@@ -29,6 +29,7 @@ RESTRICTED = [
     "navidrome",
     "ntfy",
     "oauth2-proxy",
+    "scribe",
     "syncthing",
     "wg-portal",
     "vuio",

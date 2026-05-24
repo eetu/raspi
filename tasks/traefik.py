@@ -23,6 +23,7 @@ from group_data.all import (
     NTFY,
     OAUTH2_PROXY,
     PIHOLE,
+    SCRIBE,
     STT,
     SYNCTHING,
     TRAEFIK,
@@ -269,6 +270,14 @@ http:
       tls:
         certResolver: cloudflare
 
+    # Scribe — same self-auth pattern as Chat (Kanidm OIDC).
+    scribe:
+      rule: "Host(`{SCRIBE["url_prefix"]}.{DOMAIN}`)"
+      service: scribe
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
     # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
     syncthing-monitor:
       rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
@@ -433,6 +442,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{CHAT["host"]}:{CHAT["port"]}"
+
+    scribe:
+      loadBalancer:
+        servers:
+          - url: "http://{SCRIBE["host"]}:{SCRIBE["port"]}"
 
     syncthing:
       loadBalancer:
