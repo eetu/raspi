@@ -174,7 +174,7 @@ The deploy creates a scoped API key in ABS (named `mobile`, acts on behalf of th
 
 **To rotate the API key:** clear the `api_key` field in Bitwarden and redeploy — the old key is deleted and a new one is created.
 
-The library is created automatically by the deploy and syncs from `/mnt/audiobooks/OpenAudible/books` on the NAS. New books are detected by the file watcher instantly; a full rescan runs every hour.
+The library is created automatically by the deploy and syncs from `/mnt/audiobooks/audible/books` on the NAS — Scribe writes M4Bs into this tree and POSTs a rescan to ABS after each completed job. New books are detected by the file watcher instantly; a full rescan runs every hour.
 
 ## Vaultwarden setup
 

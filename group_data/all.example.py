@@ -183,7 +183,7 @@ FMI_PV_FORECAST = {
 AUDIOBOOKSHELF = {
     "host": "127.0.0.1",
     "port": 13378,
-    "books_path": "/mnt/audiobooks/OpenAudible/books",
+    "books_path": "/mnt/audiobooks/audible/books",
     # Pinned to a specific tag (no floating major tag available).
     # Set resolve_latest=True to install the latest major.x at deploy time.
     "image": "ghcr.io/advplyr/audiobookshelf:2.33.1",

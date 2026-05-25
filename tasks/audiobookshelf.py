@@ -34,7 +34,7 @@ Wants=network-online.target mnt-audiobooks.automount
 ContainerName=audiobookshelf
 Image={_image}
 Network=host
-Volume={CIFS["audiobooks"]["mountpoint"]}/OpenAudible/books:/audiobooks:ro
+Volume={CIFS["audiobooks"]["mountpoint"]}/audible/books:/audiobooks:ro
 Volume=/var/lib/audiobookshelf/config:/config
 Volume=/var/lib/audiobookshelf/metadata:/metadata
 Environment=TZ=Europe/Helsinki
