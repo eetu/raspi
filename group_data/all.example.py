@@ -27,6 +27,7 @@ AI = {
     "host": "192.168.x.y",  # Mac mini LAN IP
     "port": 11434,  # Caddy gateway port on the Mini
     "url_prefix": "ai",
+    "public": True,
 }
 
 # Off-Pi image-generation endpoint (Mac mini ../mini repo, ComfyUI w/ Flux
@@ -40,6 +41,7 @@ COMFY = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8188,  # Caddy gateway port for ComfyUI on the Mini
     "url_prefix": "comfy",
+    "public": True,
 }
 
 # Off-Pi speech-to-text endpoint (Mac mini ../mini repo, whisper.cpp HTTP
@@ -49,6 +51,7 @@ STT = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8190,  # Caddy gateway port for Whisper on the Mini
     "url_prefix": "stt",
+    "public": True,
 }
 
 # Off-Pi text-to-speech endpoint (Mac mini ../mini repo, Piper TTS). Traefik
@@ -58,6 +61,7 @@ TTS = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8192,  # Caddy gateway port for Piper on the Mini
     "url_prefix": "tts",
+    "public": True,
 }
 
 UNBOUND = {
@@ -70,6 +74,7 @@ PIHOLE = {
     "host": "127.0.0.1",
     "web_port": 8080,  # moved off 80 so Traefik owns it
     "url_prefix": "pihole",
+    "public": True,
     "history_days": 7,  # query log retention; default is 365
     # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
     # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
@@ -135,6 +140,7 @@ HALO = {
     "host": "127.0.0.1",
     "port": 3000,
     "url_prefix": "halo",
+    "public": True,
     "aliases": ("hcc",),  # legacy fallback — keep until clients migrate
     "image": "ghcr.io/eetu/halo:main",
     # Plain config env vars. See halo/backend/src/settings.rs.
@@ -315,6 +321,7 @@ YARR = {
     "host": "127.0.0.1",
     "port": 7070,
     "url_prefix": "rss",
+    "public": True,
     "version": "v2.6",
 }
 
@@ -323,6 +330,7 @@ SYNCTHING = {
     "host": "127.0.0.1",
     "port": 8384,
     "url_prefix": "syncthing",
+    "public": True,
     "user": "root",
 }
 
@@ -330,6 +338,7 @@ NAVIDROME = {
     "host": "127.0.0.1",
     "port": 4533,
     "url_prefix": "music",
+    "public": True,
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
 }
@@ -375,6 +384,7 @@ KANIDM = {
     "host": "127.0.0.1",
     "port": 8443,
     "url_prefix": "idm",
+    "public": True,
     # Pin to a specific release; set resolve_latest=True to track the latest 1.x.
     "image": "docker.io/kanidm/server:1.9.2",
     "resolve_latest": False,
@@ -401,6 +411,7 @@ KANIDM_OIDC_CLIENTS = {
     "gatus": {
         "display_name": "Gatus Monitoring",
         "url_prefix": "status",
+        "public": True,
         "redirect_path": "/authorization-code/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "gatus_client_secret",
@@ -409,6 +420,7 @@ KANIDM_OIDC_CLIENTS = {
     "wgportal": {
         "display_name": "WireGuard Portal",
         "url_prefix": "vpn",
+        "public": True,
         "redirect_path": "/api/v0/auth/login/oidc/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "wgportal_client_secret",
@@ -416,6 +428,7 @@ KANIDM_OIDC_CLIENTS = {
     "audiobookshelf": {
         "display_name": "Audiobookshelf",
         "url_prefix": "audiobooks",
+        "public": True,
         "redirect_path": "/audiobookshelf/auth/openid/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "abs_client_secret",
@@ -423,6 +436,7 @@ KANIDM_OIDC_CLIENTS = {
     "beszel": {
         "display_name": "Beszel Monitoring",
         "url_prefix": "metrics",
+        "public": True,
         "redirect_path": "/api/oauth2-redirect",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "beszel_client_secret",
@@ -430,6 +444,7 @@ KANIDM_OIDC_CLIENTS = {
     "oauth2-proxy": {
         "display_name": "OAuth2 Proxy Forward-Auth Gateway",
         "url_prefix": "auth",
+        "public": True,
         "redirect_path": "/oauth2/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "oauth2_proxy_client_secret",
@@ -437,6 +452,7 @@ KANIDM_OIDC_CLIENTS = {
     "memos": {
         "display_name": "Memos",
         "url_prefix": "memo",
+        "public": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "memos_client_secret",
@@ -444,6 +460,7 @@ KANIDM_OIDC_CLIENTS = {
     "chat": {
         "display_name": "Chat",
         "url_prefix": "chat",
+        "public": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "chat_client_secret",
@@ -451,6 +468,7 @@ KANIDM_OIDC_CLIENTS = {
     "scribe": {
         "display_name": "Scribe",
         "url_prefix": "scribe",
+        "public": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "scribe_client_secret",
@@ -468,13 +486,14 @@ KANIDM_PERSONS = {
 }
 
 # Subdomain registry, derived from each service's `url_prefix` (plus any
-# `aliases`). Default is LAN/VPN-only — services opt into the public
-# internet by setting `"public": True`. `PUBLIC_SUBDOMAINS` (those
-# opt-ins) get Cloudflare A records + Pi-hole split-DNS overrides;
-# everything else lands in `INTERNAL_SUBDOMAINS` and only gets the
-# Pi-hole override, so it resolves for LAN/VPN clients but is invisible
-# to the public internet. Wildcard TLS cert covers both — it's issued
-# via DNS-01 and doesn't require any A record per subdomain.
+# `aliases`). Every entry below has `"public": True` so its name lands in
+# Cloudflare as an A record pointing to the LAN IP — this prevents macOS /
+# iOS resolvers from negatively caching NXDOMAIN when a roaming client (or
+# a freshly-rebooted Pi) briefly fails to resolve via Pi-hole. The CF
+# records still point at RFC1918 space, so they only connect from LAN /
+# WireGuard. Drop a service back to LAN-only by removing its `public`
+# flag — it then only gets the Pi-hole split-DNS override and resolves
+# nowhere else. Wildcard TLS cert covers both via DNS-01.
 _SUBDOMAIN_SOURCES = (
     HALO,
     PIHOLE,
