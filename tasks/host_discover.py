@@ -32,10 +32,20 @@ HOSTS_FILE=/etc/hosts
 
 resolve() {{
   local alias="$1" mdns="$2"
-  local ip
-  ip=$(getent hosts "$mdns" | awk '{{print $1; exit}}')
+  local ip="" elapsed=0
+  # At cold boot avahi hasn't finished its first network browse yet, so
+  # mDNS lookups can return empty for the first ~10-30s. Block until we
+  # get an answer (or hit the timeout) so dependent units — CIFS mount
+  # in particular — observe a populated /etc/hosts before they run.
+  while [ -z "$ip" ] && [ "$elapsed" -lt 30 ]; do
+    ip=$(getent hosts "$mdns" 2>/dev/null | awk '{{print $1; exit}}')
+    if [ -z "$ip" ]; then
+      sleep 2
+      elapsed=$((elapsed + 2))
+    fi
+  done
   if [ -z "$ip" ]; then
-    echo "hosts-discover: mDNS lookup failed for $mdns (alias $alias)" >&2
+    echo "hosts-discover: mDNS lookup failed for $mdns (alias $alias) after 30s" >&2
     return 0
   fi
   local line="$ip $alias"
@@ -63,6 +73,8 @@ Before=remote-fs.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/hosts-discover.sh
+# Cover the worst-case 30s mDNS wait per alias plus avahi startup slack.
+TimeoutStartSec=120
 
 [Install]
 WantedBy=multi-user.target
