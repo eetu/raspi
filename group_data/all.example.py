@@ -127,6 +127,10 @@ SCRIBE = {
         # stored AAXC without backend → mini file shipping. Unset =
         # reconvert disabled, normal downloads unaffected.
         # "SCRIBE_INTERNAL_URL": "http://<raspi-lan-ip>:3003",
+        # Shelf sidecar — set when SHELF is deployed. Used only to
+        # surface the connection info in scribe's settings UI; scribe
+        # itself never reads from shelf.
+        # "SCRIBE_SHELF_URL": "http://127.0.0.1:3006",
         "SCRIBE_OPEN_REGISTRATION": "0",
         "SCRIBE_ADMIN_EMAIL": "",
     },
@@ -136,6 +140,11 @@ SCRIBE = {
         # raspi's `scribe` BW item under `press_token`.
         "SCRIBE_PRESS_TOKEN": "press_token",
         "ABS_TOKEN": "abs_token",
+        # Mirrors SHELF's `api_key` — scribe surfaces it on /api/me
+        # so logged-in users can copy it into Listen This. Keep the
+        # same value in BW items `scribe.shelf_api_key` and
+        # `shelf.api_key`.
+        "SCRIBE_SHELF_API_KEY": "shelf_api_key",
     },
 }
 
@@ -145,6 +154,27 @@ SHIM = {
     "port": 3004,
     "image": "ghcr.io/eetu/scribe-shim:main",
     "env": {},
+}
+
+# Shelf — optional read-only ABS-compatible sidecar over scribe's DB.
+# Listen This and other ABS clients connect here directly (no real
+# audiobookshelf required). Mounts scribe.db and the library tree
+# read-only — no writable surface. Drop this dict or comment the
+# `local.include("tasks/shelf.py")` line in deploy.py to disable.
+SHELF = {
+    "host": "127.0.0.1",
+    "port": 3006,
+    "url_prefix": "shelf",
+    "public": True,  # external clients (iOS app) want this reachable
+    "image": "ghcr.io/eetu/scribe-shelf:main",
+    "env": {
+        "SHELF_LIBRARY_NAME": "Audiobooks",
+    },
+    # SHELF_API_KEY (bearer) lives in BW item `shelf` under field
+    # `api_key`. tasks/secrets.py writes it to /etc/secrets/shelf.env.
+    "secret_env": {
+        "SHELF_API_KEY": "api_key",
+    },
 }
 
 HALO = {
@@ -518,6 +548,7 @@ _SUBDOMAIN_SOURCES = (
     STT,
     TTS,
     MCP_CHAT,
+    SHELF,
 )
 PUBLIC_SUBDOMAINS = tuple(
     sorted(

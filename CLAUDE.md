@@ -196,6 +196,9 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 3000 | Halo |
 | 3001 | Gatus |
 | 3002 | Chat |
+| 3003 | Scribe |
+| 3004 | Scribe shim (loopback) |
+| 3006 | Scribe shelf |
 | 4533 | Navidrome |
 | 5230 | Memos |
 | 5335 | Unbound (DNS) |

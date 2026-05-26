@@ -24,6 +24,7 @@ from group_data.all import (
     OAUTH2_PROXY,
     PIHOLE,
     SCRIBE,
+    SHELF,
     STT,
     SYNCTHING,
     TRAEFIK,
@@ -278,6 +279,16 @@ http:
       tls:
         certResolver: cloudflare
 
+    # Shelf — read-only ABS-compat sidecar. Bearer-key auth at the
+    # application layer, so Traefik just terminates TLS and forwards.
+    # Listen This / other ABS clients connect here directly.
+    shelf:
+      rule: "Host(`{SHELF["url_prefix"]}.{DOMAIN}`)"
+      service: shelf
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+
     # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
     syncthing-monitor:
       rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
@@ -447,6 +458,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://{SCRIBE["host"]}:{SCRIBE["port"]}"
+
+    shelf:
+      loadBalancer:
+        servers:
+          - url: "http://{SHELF["host"]}:{SHELF["port"]}"
 
     syncthing:
       loadBalancer:

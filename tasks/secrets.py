@@ -152,6 +152,9 @@ _scribe_lines = [
     f"SESSION_KEY={bw.scribe_session_key()}",
     f"SCRIBE_PRESS_TOKEN={bw.scribe_press_token()}",
     f"ABS_TOKEN={bw.scribe_abs_token()}",
+    # Same value as /etc/secrets/shelf.env — paired so scribe's UI
+    # can surface the key without an extra service round-trip.
+    f"SCRIBE_SHELF_API_KEY={bw.shelf_api_key()}",
 ]
 if _scribe_oidc_secret:
     _scribe_lines.extend(
@@ -171,6 +174,16 @@ _put_secret(
     "shim.env",
     f"SHIM_PASSPHRASE={bw.shim_passphrase()}\n",
     "/etc/secrets/shim.env",
+)
+
+# --- Shelf (optional ABS-compat sidecar) ---
+# Bearer key shared with scribe. shelf_api_key() persists the same
+# value on both the `shelf` and `scribe` BW items so the two services
+# always agree even after rotation.
+_put_secret(
+    "shelf.env",
+    f"SHELF_API_KEY={bw.shelf_api_key()}\n",
+    "/etc/secrets/shelf.env",
 )
 
 # --- restic ---

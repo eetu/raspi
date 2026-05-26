@@ -307,6 +307,40 @@ def scribe_abs_token() -> str:
     return _fields("scribe").get("abs_token", "") or ""
 
 
+def shelf_api_key() -> str:
+    """Bearer token for scribe-shelf. Auto-generated on first call and
+    persisted as the `api_key` field on the `shelf` BW item. scribe's
+    own /etc/secrets/scribe.env reads the same value via the
+    `shelf_api_key` field on the `scribe` item — the two must stay in
+    sync, so this helper writes both at the same time."""
+    existing = _fields("shelf").get("api_key", "") or ""
+    if existing:
+        # Keep scribe's copy aligned in case the BW item was rotated.
+        scribe_copy = _fields("scribe").get("shelf_api_key", "") or ""
+        if scribe_copy != existing:
+            _set_field("scribe", "shelf_api_key", existing)
+        return existing
+    new = secrets.token_hex(32)
+    _set_field("shelf", "api_key", new)
+    _set_field("scribe", "shelf_api_key", new)
+    return new
+
+
+def _set_field(item_name: str, field: str, value: str) -> None:
+    """Upsert a custom field on a BW item. Used by helpers that
+    generate-and-persist secrets on first call."""
+    item = json.loads(json.dumps(_get_item(item_name)))  # copy
+    fields = item.get("fields") or []
+    for f in fields:
+        if f.get("name") == field:
+            f["value"] = value
+            break
+    else:
+        fields.append({"name": field, "value": value, "type": 1})
+    item["fields"] = fields
+    _edit_item(item)
+
+
 def _scribe_hex_field(field: str, nbytes: int) -> str:
     """Auto-generated hex field on the `scribe` BW item, persisted on first call."""
     existing = _fields("scribe").get(field, "") or ""

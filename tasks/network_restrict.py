@@ -30,6 +30,10 @@ RESTRICTED = [
     "ntfy",
     "oauth2-proxy",
     "scribe",
+    # Shelf intentionally NOT restricted: /api/items/{id}/cover proxies
+    # to the Audible CDN (m.media-amazon.com), which lives outside the
+    # LAN. The endpoint is bearer-gated; egress is read-only image
+    # fetches.
     "syncthing",
     "wg-portal",
     "vuio",
