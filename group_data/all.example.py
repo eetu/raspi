@@ -116,6 +116,17 @@ SCRIBE = {
         # "SCRIBE_PRESS_URL": "https://scribe-press.<mini-host>:3005",
         "SCRIBE_AUTO_ENQUEUE": "1",
         "SCRIBE_POLL_INTERVAL_MIN": "60",
+        # Reconvert needs press to reach scribe directly over the LAN
+        # to fetch /internal/aaxc/{token}. Loopback bind defeats that —
+        # override here. Traefik still dials 127.0.0.1, which 0.0.0.0
+        # naturally includes, so public routing is unaffected.
+        # "SCRIBE_BIND": "0.0.0.0:3003",
+        # LAN URL of this scribe instance, as seen from the mini-side
+        # press worker. Used during reconvert: scribe mints a one-shot
+        # /internal/aaxc/{token} URL so press can pull the locally-
+        # stored AAXC without backend → mini file shipping. Unset =
+        # reconvert disabled, normal downloads unaffected.
+        # "SCRIBE_INTERNAL_URL": "http://<raspi-lan-ip>:3003",
         "SCRIBE_OPEN_REGISTRATION": "0",
         "SCRIBE_ADMIN_EMAIL": "",
     },
