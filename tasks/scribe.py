@@ -18,7 +18,12 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import AUDIOBOOKSHELF, CIFS, SCRIBE, SHIM
+from group_data.all import AUDIOBOOKSHELF, CIFS, NETWORK, SCRIBE, SHIM
+
+try:
+    from group_data.all import SHELF
+except ImportError:
+    SHELF = None
 
 _audiobooks = CIFS["audiobooks"]["mountpoint"]
 _base_env = {
@@ -31,6 +36,13 @@ _base_env = {
     "ABS_URL": f"http://{AUDIOBOOKSHELF['host']}:{AUDIOBOOKSHELF['port']}",
     "ABS_LIBRARY_ID": AUDIOBOOKSHELF.get("scribe_library_id", ""),
 }
+
+# Surface shelf's public URL on scribe's UI so users can copy/paste it
+# into ABS-compatible clients. Auto-derived from SHELF + NETWORK — no
+# need to repeat the URL in group_data/all.py. SCRIBE["env"] still
+# overrides if set explicitly.
+if SHELF:
+    _base_env["SCRIBE_SHELF_URL"] = f"https://{SHELF['url_prefix']}.{NETWORK['domain']}"
 
 
 def _env_line(k: str, v) -> str:

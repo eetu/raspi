@@ -127,10 +127,11 @@ SCRIBE = {
         # stored AAXC without backend → mini file shipping. Unset =
         # reconvert disabled, normal downloads unaffected.
         # "SCRIBE_INTERNAL_URL": "http://<raspi-lan-ip>:3003",
-        # Shelf sidecar — set when SHELF is deployed. Used only to
-        # surface the connection info in scribe's settings UI; scribe
-        # itself never reads from shelf.
-        # "SCRIBE_SHELF_URL": "http://127.0.0.1:3006",
+        # SCRIBE_SHELF_URL is auto-derived in tasks/scribe.py from
+        # SHELF["url_prefix"] + NETWORK["domain"] (https form) so scribe's
+        # UI shows the public URL for copy/paste into ABS clients. Set
+        # an override here only if you want something other than the
+        # public Traefik route.
         "SCRIBE_OPEN_REGISTRATION": "0",
         "SCRIBE_ADMIN_EMAIL": "",
     },
@@ -140,10 +141,9 @@ SCRIBE = {
         # raspi's `scribe` BW item under `press_token`.
         "SCRIBE_PRESS_TOKEN": "press_token",
         "ABS_TOKEN": "abs_token",
-        # Mirrors SHELF's `api_key` — scribe surfaces it on /api/me
-        # so logged-in users can copy it into Listen This. Keep the
-        # same value in BW items `scribe.shelf_api_key` and
-        # `shelf.api_key`.
+        # Shelf bearer — scribe surfaces it on /api/me so logged-in
+        # users can copy/paste into Listen This. Same value also lands
+        # in /etc/secrets/shelf.env so both services agree.
         "SCRIBE_SHELF_API_KEY": "shelf_api_key",
     },
 }
