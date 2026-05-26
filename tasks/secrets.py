@@ -177,9 +177,10 @@ _put_secret(
 )
 
 # --- Shelf (optional ABS-compat sidecar) ---
-# Bearer key shared with scribe. shelf_api_key() persists the same
-# value on both the `shelf` and `scribe` BW items so the two services
-# always agree even after rotation.
+# Bearer key lives on the `scribe` BW item as `shelf_api_key` — shelf
+# is a scribe sidecar so the credential follows its owner. scribe.env
+# above pipes the same value through SCRIBE_SHELF_API_KEY so /api/me
+# can surface it to logged-in users.
 _put_secret(
     "shelf.env",
     f"SHELF_API_KEY={bw.shelf_api_key()}\n",

@@ -60,7 +60,10 @@ Item structure in the 'raspi' folder:
                                                abs_token (hidden, hand-issued ABS API token used
                                                  to POST /api/libraries/{id}/scan);
                                                shim_passphrase (hidden, 48-byte hex; auto-
-                                                 generated; encrypts shim's on-disk Audible auth)
+                                                 generated; encrypts shim's on-disk Audible auth);
+                                               shelf_api_key (hidden, 32-byte hex; auto-
+                                                 generated; bearer for scribe-shelf — shared with
+                                                 /etc/secrets/shelf.env via tasks/secrets.py)
   restic            login  password=repo_password (used to encrypt the restic backup repo;
                                                   treat as load-bearing — losing this means
                                                   losing access to all snapshots)
@@ -309,36 +312,12 @@ def scribe_abs_token() -> str:
 
 def shelf_api_key() -> str:
     """Bearer token for scribe-shelf. Auto-generated on first call and
-    persisted as the `api_key` field on the `shelf` BW item. scribe's
-    own /etc/secrets/scribe.env reads the same value via the
-    `shelf_api_key` field on the `scribe` item — the two must stay in
-    sync, so this helper writes both at the same time."""
-    existing = _fields("shelf").get("api_key", "") or ""
-    if existing:
-        # Keep scribe's copy aligned in case the BW item was rotated.
-        scribe_copy = _fields("scribe").get("shelf_api_key", "") or ""
-        if scribe_copy != existing:
-            _set_field("scribe", "shelf_api_key", existing)
-        return existing
-    new = secrets.token_hex(32)
-    _set_field("shelf", "api_key", new)
-    _set_field("scribe", "shelf_api_key", new)
-    return new
-
-
-def _set_field(item_name: str, field: str, value: str) -> None:
-    """Upsert a custom field on a BW item. Used by helpers that
-    generate-and-persist secrets on first call."""
-    item = json.loads(json.dumps(_get_item(item_name)))  # copy
-    fields = item.get("fields") or []
-    for f in fields:
-        if f.get("name") == field:
-            f["value"] = value
-            break
-    else:
-        fields.append({"name": field, "value": value, "type": 1})
-    item["fields"] = fields
-    _edit_item(item)
+    stored as the `shelf_api_key` field on the `scribe` BW item — shelf
+    is a scribe sidecar, so its credential lives with its owner. Both
+    /etc/secrets/shelf.env and /etc/secrets/scribe.env read this same
+    value, so the two services stay in sync without cross-item upsert
+    juggling."""
+    return _scribe_hex_field("shelf_api_key", 32)
 
 
 def _scribe_hex_field(field: str, nbytes: int) -> str:
