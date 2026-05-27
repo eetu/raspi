@@ -32,6 +32,9 @@ _base_env = {
     "SCRIBE_SHIM_URL": f"http://{SHIM['host']}:{SHIM['port']}",
     "SCRIBE_LIBRARY_DIR": f"{_audiobooks}/audible/books",
     "SCRIBE_ORIGINAL_DIR": f"{_audiobooks}/audible/originals",
+    # On-disk cover cache under /var/lib/scribe (mounted at /data) so it
+    # rides the existing restic backup of /var/lib/scribe.
+    "SCRIBE_COVERS_DIR": "/data/covers",
     # audiobookshelf rescan hook — backend POSTs after each completed job.
     "ABS_URL": f"http://{AUDIOBOOKSHELF['host']}:{AUDIOBOOKSHELF['port']}",
     "ABS_LIBRARY_ID": AUDIOBOOKSHELF.get("scribe_library_id", ""),
