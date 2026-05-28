@@ -21,6 +21,39 @@ WIREGUARD = {
     # "public_ipv4": True,
 }
 
+# Inbound email DNS — apex MX/SPF/DKIM/DMARC + provider domain verification.
+# Records are written by tasks/cloudflare_dns.py. Provider-agnostic shape so
+# Proton/Fastmail/Migadu/etc. can be swapped by editing values, not code.
+# Comment the dict to skip all email DNS wiring.
+#
+# Two-deploy bootstrap (Proton):
+#   1. Fill verification_txt + mx + spf + dmarc, deploy. Wait until Proton
+#      dashboard turns each record green.
+#   2. Paste the 3 DKIM CNAME targets shown in Proton into `dkim`, redeploy.
+EMAIL = {
+    "provider": "proton",  # informational; record values come from below
+    # Provider domain-ownership TXT at apex (e.g. "protonmail-verification=...").
+    # Co-exists with SPF — both are TXT at @ but matched on exact content.
+    "verification_txt": "protonmail-verification=<token>",
+    # Apex MX. Lower priority = higher preference.
+    "mx": [
+        ("mail.protonmail.ch", 10),
+        ("mailsec.protonmail.ch", 20),
+    ],
+    # Apex SPF TXT.
+    "spf": "v=spf1 include:_spf.protonmail.ch ~all",
+    # DKIM CNAMEs — keep empty on deploy 1, fill after Proton verifies domain.
+    "dkim": {
+        # "protonmail._domainkey":  "protonmail.domainkey.<id>.domains.proton.ch",
+        # "protonmail2._domainkey": "protonmail2.domainkey.<id>.domains.proton.ch",
+        # "protonmail3._domainkey": "protonmail3.domainkey.<id>.domains.proton.ch",
+    },
+    # DMARC TXT at `_dmarc`. Start `p=quarantine`; tighten to `p=reject` after
+    # ~2 weeks of clean aggregate reports. The rua/ruf mailbox must exist as
+    # an address/alias on the domain before reports arrive.
+    "dmarc": "v=DMARC1; p=quarantine; rua=mailto:postmaster@yourdomain.com; ruf=mailto:postmaster@yourdomain.com; fo=1",
+}
+
 # Off-Pi LLM endpoint (Mac mini ../mini repo). Traefik proxies ai.{domain}
 # to this LAN address; the Mini owns auth (currently none — bare proxy).
 AI = {
