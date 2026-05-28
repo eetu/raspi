@@ -227,6 +227,12 @@ FMI_PV_FORECAST = {
     },
 }
 
+# Optional. Comment the entire block to retire ABS without deleting
+# state — tasks/audiobookshelf.py drops into a cleanup branch (stop +
+# disable systemd unit, leave /var/lib/audiobookshelf, BW item, and
+# Kanidm OIDC client untouched). Re-add the block + redeploy to bring
+# the service back online. scribe-shelf covers the read-only API path
+# for most clients now.
 AUDIOBOOKSHELF = {
     "host": "127.0.0.1",
     "port": 13378,

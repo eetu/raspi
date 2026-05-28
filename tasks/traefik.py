@@ -8,7 +8,6 @@ from pyinfra.operations import files, server, systemd
 import vault as bw
 from group_data.all import (
     AI,
-    AUDIOBOOKSHELF,
     BESZEL,
     CHAT,
     COMFY,
@@ -35,12 +34,43 @@ from group_data.all import (
 )
 from tasks.util import restart_if_changed
 
+try:
+    from group_data.all import AUDIOBOOKSHELF
+except ImportError:
+    AUDIOBOOKSHELF = None
+
 VERSION = TRAEFIK["version"]
 BINARY_URL = (
     f"https://github.com/traefik/traefik/releases/download/{VERSION}/"
     f"traefik_{VERSION}_linux_arm64.tar.gz"
 )
 DOMAIN = NETWORK["domain"]
+
+# Audiobookshelf router + service YAML chunks — empty when ABS is
+# retired (its dict commented out in group_data/all.py), so the
+# dynamic config drops the audiobooks route entirely.
+_audiobooks_router = (
+    f"""
+    audiobooks:
+      rule: "Host(`audiobooks.{DOMAIN}`)"
+      service: audiobooks
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare
+"""
+    if AUDIOBOOKSHELF
+    else ""
+)
+_audiobooks_service = (
+    f"""
+    audiobooks:
+      loadBalancer:
+        servers:
+          - url: "http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
+"""
+    if AUDIOBOOKSHELF
+    else ""
+)
 
 # Whether oauth2-proxy is wired up for this deployment. Used to gate the
 # music router — when oauth2-proxy is not configured, Navidrome is exposed
@@ -204,13 +234,7 @@ http:
       tls:
         certResolver: cloudflare
 
-    audiobooks:
-      rule: "Host(`audiobooks.{DOMAIN}`)"
-      service: audiobooks
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
+{_audiobooks_router}
     vpn:
       rule: "Host(`vpn.{DOMAIN}`)"
       service: vpn
@@ -409,11 +433,7 @@ http:
         servers:
           - url: "http://{PIHOLE["host"]}:{PIHOLE["web_port"]}"
 
-    audiobooks:
-      loadBalancer:
-        servers:
-          - url: "http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
-
+{_audiobooks_service}
     vpn:
       loadBalancer:
         servers:

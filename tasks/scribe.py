@@ -18,8 +18,12 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import AUDIOBOOKSHELF, CIFS, NETWORK, SCRIBE, SHIM
+from group_data.all import CIFS, NETWORK, SCRIBE, SHIM
 
+try:
+    from group_data.all import AUDIOBOOKSHELF
+except ImportError:
+    AUDIOBOOKSHELF = None
 try:
     from group_data.all import SHELF
 except ImportError:
@@ -35,10 +39,13 @@ _base_env = {
     # On-disk cover cache under /var/lib/scribe (mounted at /data) so it
     # rides the existing restic backup of /var/lib/scribe.
     "SCRIBE_COVERS_DIR": "/data/covers",
-    # audiobookshelf rescan hook — backend POSTs after each completed job.
-    "ABS_URL": f"http://{AUDIOBOOKSHELF['host']}:{AUDIOBOOKSHELF['port']}",
-    "ABS_LIBRARY_ID": AUDIOBOOKSHELF.get("scribe_library_id", ""),
 }
+
+# audiobookshelf rescan hook — backend POSTs after each completed job.
+# Drop both keys when ABS isn't configured so scribe skips the hook.
+if AUDIOBOOKSHELF:
+    _base_env["ABS_URL"] = f"http://{AUDIOBOOKSHELF['host']}:{AUDIOBOOKSHELF['port']}"
+    _base_env["ABS_LIBRARY_ID"] = AUDIOBOOKSHELF.get("scribe_library_id", "")
 
 # Surface shelf's public URL on scribe's UI so users can copy/paste it
 # into ABS-compatible clients. Auto-derived from SHELF + NETWORK — no
