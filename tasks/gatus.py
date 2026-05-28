@@ -15,7 +15,12 @@ from group_data.all import (
     NTFY,
     UNBOUND,
 )
-from tasks.util import resolve_latest
+from tasks.util import optional, resolve_latest
+
+# Optional services — comment their dicts in group_data/all.py to retire
+# them and the matching gatus endpoint disappears with them.
+AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
+SHELF = optional("SHELF")
 
 DOMAIN = NETWORK["domain"]
 
@@ -36,6 +41,39 @@ _nas_host = CIFS["audiobooks"]["share"].split("/")[2]
 _navidrome_url = (
     f"http://{NAVIDROME['host']}:{NAVIDROME['port']}"
     "/rest/getOpenSubsonicExtensions.view?f=json&c=gatus&v=1.16.1"
+)
+
+# Per-optional-service endpoint snippets. Each renders as an empty
+# string when its service dict is absent from group_data/all.py, so
+# retiring a service automatically drops its monitor + stops gatus
+# from alerting on a 404 it caused itself.
+_audiobookshelf_endpoint = (
+    f"""  - name: Audiobookshelf
+    url: "https://audiobooks.{DOMAIN}"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+
+"""
+    if AUDIOBOOKSHELF
+    else ""
+)
+_shelf_endpoint = (
+    f"""  - name: Shelf
+    # /health is an unauthenticated probe — exercises scribe-shelf
+    # without needing the bearer.
+    url: "http://{SHELF["host"]}:{SHELF["port"]}/health"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+
+"""
+    if SHELF
+    else ""
 )
 
 _config_yaml = f"""\
@@ -67,15 +105,7 @@ endpoints:
     alerts:
       - type: ntfy
 
-  - name: Audiobookshelf
-    url: "https://audiobooks.{DOMAIN}"
-    interval: 1m
-    conditions:
-      - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-  - name: WireGuard Portal
+{_audiobookshelf_endpoint}{_shelf_endpoint}  - name: WireGuard Portal
     url: "https://vpn.{DOMAIN}"
     interval: 1m
     conditions:

@@ -56,6 +56,27 @@ Use when: upstream provides a container image.
 6. `systemd.service(running=True, daemon_reload=True)`
 7. Hash-based restart: separate stamps for quadlet hash and env file hash
 
+## Required vs optional services
+
+The deploy is opinionated about which services are core and which are à la carte. Tier matters for *how* a service is wired:
+
+- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `CIFS`, `HOSTS`, `SHELL`.
+- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Today: `RESTIC`, `AUDIOBOOKSHELF`, `SHELF`. Migrating another service is the recipe below.
+
+### Retiring an optional service
+
+1. Comment the service's dict in `group_data/all.py`.
+2. Run the deploy. The task drops into its cleanup branch (stops + disables the systemd unit) and dependent tasks (`tasks/traefik.py`, `tasks/scribe.py`, `tasks/gatus.py`, …) drop the wiring tied to that dict.
+3. State on disk (`/var/lib/{service}`, BW item, Kanidm OIDC client) stays untouched so re-adding the block + redeploying is a clean rollback.
+
+### Making a service retirement-safe
+
+1. **Consumers** — replace every `from group_data.all import X` with `X = optional("X")` and guard module-level uses with `if X:`.
+2. **Subdomain registry** — `_SUBDOMAIN_SOURCES` in `group_data/all.py` already resolves its members via `globals().get(name)`, so just having the dict commented is enough; no change needed.
+3. **Traefik** — extract the router + service YAML chunks into conditional variables (see `_audiobooks_router` / `_audiobooks_service` in `tasks/traefik.py` for the pattern), substitute them into `dynamic_yaml`.
+4. **Gatus** — gate the matching endpoint snippet on the dict's presence (see `_audiobookshelf_endpoint` / `_shelf_endpoint` in `tasks/gatus.py`). Skipping this step means gatus alerts on a 404 it caused itself.
+5. **The service's own task** — top-level branch on the dict; cleanup branch stops + disables the unit, full deploy branch does the usual work.
+
 ## Refactoring while adding services
 
 When planning a new service, look for opportunities to clean up existing code that the new service makes awkward — duplicated config keys, repeated patterns that can be looped, hardcoded values that should come from `all.py`. Propose these refactors as part of the plan, not as separate follow-up work.
