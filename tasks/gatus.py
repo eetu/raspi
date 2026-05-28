@@ -62,9 +62,9 @@ _audiobookshelf_endpoint = (
 )
 _shelf_endpoint = (
     f"""  - name: Shelf
-    # /health is an unauthenticated probe — exercises scribe-shelf
+    # /ping is the unauthenticated liveness probe — exercises scribe-shelf
     # without needing the bearer.
-    url: "http://{SHELF["host"]}:{SHELF["port"]}/health"
+    url: "http://{SHELF["host"]}:{SHELF["port"]}/ping"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
