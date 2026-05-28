@@ -24,11 +24,9 @@ import sys
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import CIFS, NETWORK, NTFY
+from tasks.util import optional
 
-try:
-    from group_data.all import RESTIC
-except ImportError:
-    RESTIC = None
+RESTIC = optional("RESTIC")
 
 _BACKUPS = CIFS.get("backups")
 if RESTIC is None or _BACKUPS is None:

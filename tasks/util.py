@@ -26,6 +26,18 @@ def _write_cache(data: dict[str, str]) -> None:
         print(f"WARN: could not write {_CACHE_PATH}: {e}", file=sys.stderr)
 
 
+def optional(name: str):
+    """Return `group_data.all.<name>` if defined, else None.
+
+    Lets tasks gracefully skip wiring for retired services: comment the
+    dict out in group_data/all.py and any importer that uses this
+    helper sees None instead of an ImportError, so the deploy keeps
+    going. Use over `try/except ImportError` to keep boilerplate down."""
+    import group_data.all as _all
+
+    return getattr(_all, name, None)
+
+
 def restart_if_changed(
     service: str,
     static_hash: str,

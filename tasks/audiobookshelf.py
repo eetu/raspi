@@ -18,12 +18,9 @@ from pyinfra.operations import files, python, server, systemd
 
 import vault as bw
 from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETWORK
-from tasks.util import resolve_latest
+from tasks.util import optional, resolve_latest
 
-try:
-    from group_data.all import AUDIOBOOKSHELF
-except ImportError:
-    AUDIOBOOKSHELF = None
+AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 
 
 if AUDIOBOOKSHELF is None:

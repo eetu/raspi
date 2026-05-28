@@ -32,12 +32,9 @@ from group_data.all import (
     WGPORTAL,
     YARR,
 )
-from tasks.util import restart_if_changed
+from tasks.util import optional, restart_if_changed
 
-try:
-    from group_data.all import AUDIOBOOKSHELF
-except ImportError:
-    AUDIOBOOKSHELF = None
+AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 
 VERSION = TRAEFIK["version"]
 BINARY_URL = (

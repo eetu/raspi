@@ -541,21 +541,25 @@ KANIDM_PERSONS = {
 # WireGuard. Drop a service back to LAN-only by removing its `public`
 # flag — it then only gets the Pi-hole split-DNS override and resolves
 # nowhere else. Wildcard TLS cert covers both via DNS-01.
-_SUBDOMAIN_SOURCES = (
-    HALO,
-    PIHOLE,
-    NTFY,
-    YARR,
-    NAVIDROME,
-    SYNCTHING,
-    KANIDM,
-    AI,
-    COMFY,
-    STT,
-    TTS,
-    MCP_CHAT,
-    SHELF,
+# Names listed here are looked up in module globals — a service that's
+# been retired (its dict commented out) drops out automatically instead
+# of triggering a NameError.
+_SUBDOMAIN_NAMES = (
+    "HALO",
+    "PIHOLE",
+    "NTFY",
+    "YARR",
+    "NAVIDROME",
+    "SYNCTHING",
+    "KANIDM",
+    "AI",
+    "COMFY",
+    "STT",
+    "TTS",
+    "MCP_CHAT",
+    "SHELF",
 )
+_SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(
     sorted(
         {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if svc.get("public")}

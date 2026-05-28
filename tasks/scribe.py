@@ -19,15 +19,10 @@ import json
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import CIFS, NETWORK, SCRIBE, SHIM
+from tasks.util import optional
 
-try:
-    from group_data.all import AUDIOBOOKSHELF
-except ImportError:
-    AUDIOBOOKSHELF = None
-try:
-    from group_data.all import SHELF
-except ImportError:
-    SHELF = None
+AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
+SHELF = optional("SHELF")
 
 _audiobooks = CIFS["audiobooks"]["mountpoint"]
 _base_env = {

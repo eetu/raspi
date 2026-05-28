@@ -6,11 +6,9 @@ from pyinfra.operations import files
 
 import vault as bw
 from group_data.all import CIFS, HALO, KANIDM_OIDC_CLIENTS, NETWORK
+from tasks.util import optional
 
-try:
-    from group_data.all import RESTIC
-except ImportError:
-    RESTIC = None
+RESTIC = optional("RESTIC")
 
 
 def _put_secret(name, content, dest, mode="600", group="root"):
