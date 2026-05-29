@@ -76,7 +76,7 @@ The deploy is opinionated about which services are core and which are à la cart
 ### Making a service retirement-safe
 
 1. **Consumers** — replace every `from group_data.all import X` with `X = optional("X")` and guard module-level uses with `if X:`.
-2. **Subdomain registry** — `_SUBDOMAIN_SOURCES` in `group_data/all.py` already resolves its members via `globals().get(name)`, so just having the dict commented is enough; no change needed.
+2. **Subdomain registry** — `_SUBDOMAIN_SOURCES` in `group_data/all.py` is built from `_SUBDOMAIN_NAMES` via `globals().get(name)`, so a commented-out dict just drops out; no change needed.
 3. **Traefik** — `tasks/traefik.py` is registry-driven: add a `(name, DICT, default_prefix)` tuple to `ROUTES` (the dict is an `optional()` lookup). A route whose dict is `None` is skipped automatically — routers + services for required hosts (pihole, idm, auth) plus the wildcard-cert declaration on the idm router stay put. Only special host shapes (extra monitor routers, oauth2 chains, non-default upstream scheme) need bespoke handling.
 4. **Secrets** — gate the service's `/etc/secrets/{service}.env` write in `tasks/secrets.py` behind `if X:` so a retired service stops getting a secret file.
 5. **Gatus** — gate the matching endpoint snippet on the dict's presence (see `_halo_endpoint` / `_shelf_endpoint` in `tasks/gatus.py`). Skipping this means gatus alerts on a 404 it caused itself.
@@ -92,8 +92,8 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `group_data/all.py` — mirror the same change verbatim (the file holds no secret values; AI assistants may edit it directly)
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
-- [ ] `tasks/traefik.py` — add router + service to `dynamic_yaml`, import from `all` (if web-accessible)
-- [ ] `group_data/all.py` — append the service dict to `_SUBDOMAIN_SOURCES` (if web-accessible). DNS wiring is derived from each dict's optional `"public": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/VPN clients). Wildcard TLS cert covers both. Be deliberate when adding `public: True` — every public subdomain is a fresh internet-facing attack surface.
+- [ ] `tasks/traefik.py` — add a `(name, DICT, default_prefix)` tuple to the `ROUTES` registry (DICT resolved via `optional()`); import the dict (if web-accessible). Only special host shapes (extra monitor routers, oauth2 chains, non-http upstream) need bespoke handling beyond the tuple.
+- [ ] `group_data/all.py` — append the service's name to `_SUBDOMAIN_NAMES` (if web-accessible). DNS wiring is derived from each dict's optional `"public": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/VPN clients). Wildcard TLS cert covers both. Be deliberate when adding `public: True` — every public subdomain is a fresh internet-facing attack surface.
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
 - [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
@@ -204,7 +204,7 @@ Note any version-specific quirks in code comments so the next person reading the
 - Static config: `/etc/traefik/static.yaml`
 - Dynamic config: `/etc/traefik/dynamic/services.yaml` (file provider, hot-reload)
 - All services bind to `127.0.0.1:{port}` — Traefik is the only public listener
-- Adding a service: add router + service block to `dynamic_yaml` in `tasks/traefik.py`
+- Adding a service: add a `(name, DICT, default_prefix)` tuple to the `ROUTES` registry in `tasks/traefik.py` (absent/commented dict → route auto-skipped)
 
 ## Backups (restic)
 
