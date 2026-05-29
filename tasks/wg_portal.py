@@ -1,4 +1,11 @@
-"""wg-portal: download binary, write config, systemd service."""
+"""wg-portal: download binary, write config, systemd service.
+
+Optional service — comment the WGPORTAL dict in group_data/all.py to
+retire it. The task then drops into a cleanup branch that stops +
+disables the systemd unit and leaves the binary, /etc/wg-portal, and
+/var/lib/wg-portal untouched, so re-adding the dict + redeploying
+restores the service.
+"""
 
 import hashlib
 import io
@@ -6,36 +13,53 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, WGPORTAL, WIREGUARD
-from tasks.util import restart_if_changed
+from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, WIREGUARD
+from tasks.util import optional, restart_if_changed
 
-VERSION = WGPORTAL["version"]
-BINARY_URL = f"https://github.com/h44z/wg-portal/releases/download/{VERSION}/wg-portal_linux_arm64"
+WGPORTAL = optional("WGPORTAL")
 
-# --- Binary ---
 
-server.shell(
-    name=f"Install wg-portal {VERSION}",
-    commands=[
-        f"""
-        INSTALLED=$(/usr/local/bin/wg-portal --version 2>/dev/null | grep -o "{VERSION}" || true)
-        if [ "$INSTALLED" != "{VERSION}" ]; then
-          curl -fsSL "{BINARY_URL}" -o /usr/local/bin/wg-portal
-          chmod +x /usr/local/bin/wg-portal
-        fi
-        """,
-    ],
-)
+if WGPORTAL is None:
+    # Retired: keep binary and data on disk, just stop + disable the unit
+    # so the port is freed. Re-adding the WGPORTAL dict + redeploying
+    # brings the service back without any data loss.
+    systemd.service(
+        name="Stop + disable wg-portal (kept on disk for rollback)",
+        service="wg-portal",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    VERSION = WGPORTAL["version"]
+    BINARY_URL = (
+        f"https://github.com/h44z/wg-portal/releases/download/{VERSION}/wg-portal_linux_arm64"
+    )
 
-# --- Config ---
+    # --- Binary ---
 
-creds = bw.wg_portal_creds()
-# OIDC is optional — wg-portal deploys without SSO if not in KANIDM_OIDC_CLIENTS
-# or until Kanidm has generated the client secret on a previous deploy.
-_oidc_client = KANIDM_OIDC_CLIENTS.get("wgportal")
-_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+    server.shell(
+        name=f"Install wg-portal {VERSION}",
+        commands=[
+            f"""
+            INSTALLED=$(/usr/local/bin/wg-portal --version 2>/dev/null | grep -o "{VERSION}" || true)
+            if [ "$INSTALLED" != "{VERSION}" ]; then
+              curl -fsSL "{BINARY_URL}" -o /usr/local/bin/wg-portal
+              chmod +x /usr/local/bin/wg-portal
+            fi
+            """,
+        ],
+    )
 
-config_yaml = f"""core:
+    # --- Config ---
+
+    creds = bw.wg_portal_creds()
+    # OIDC is optional — wg-portal deploys without SSO if not in KANIDM_OIDC_CLIENTS
+    # or until Kanidm has generated the client secret on a previous deploy.
+    _oidc_client = KANIDM_OIDC_CLIENTS.get("wgportal")
+    _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+
+    config_yaml = f"""core:
   admin_user:                    "{creds["username"]}"
   admin_password:                "{creds["password"]}"
   admin_api_token:               "{creds["api_token"]}"
@@ -61,9 +85,9 @@ wireguard:
         - "0.0.0.0/0"
         - "::/0"
 {
-    ""
-    if not _oidc_secret
-    else f'''
+        ""
+        if not _oidc_secret
+        else f'''
 auth:
   callback_url_prefix: "https://vpn.{NETWORK["domain"]}/api/v0"
   oidc:
@@ -78,41 +102,43 @@ auth:
       pkce_enabled: true
       registration_enabled: true
 '''
-}"""
+    }"""
 
-for path in ("/etc/wg-portal", "/etc/wg-portal/config"):
-    files.directory(
-        name=f"Create {path}",
-        path=path,
+    for path in ("/etc/wg-portal", "/etc/wg-portal/config"):
+        files.directory(
+            name=f"Create {path}",
+            path=path,
+            user="root",
+            group="root",
+            mode="750",
+            present=True,
+        )
+
+    files.put(
+        name="Write wg-portal config",
+        src=io.BytesIO(config_yaml.encode()),
+        dest="/etc/wg-portal/config/config.yml",
         user="root",
         group="root",
-        mode="750",
-        present=True,
+        mode="600",
     )
 
-files.put(
-    name="Write wg-portal config",
-    src=io.BytesIO(config_yaml.encode()),
-    dest="/etc/wg-portal/config/config.yml",
-    user="root",
-    group="root",
-    mode="600",
-)
+    _wg_creds_env = (
+        f"WG_PORTAL_USER='{creds['username']}'\nWG_PORTAL_TOKEN='{creds['api_token']}'\n"
+    )
 
-_wg_creds_env = f"WG_PORTAL_USER='{creds['username']}'\nWG_PORTAL_TOKEN='{creds['api_token']}'\n"
+    files.put(
+        name="Write wg-portal API credentials",
+        src=io.BytesIO(_wg_creds_env.encode()),
+        dest="/etc/secrets/wg-portal.env",
+        user="root",
+        group="root",
+        mode="600",
+    )
 
-files.put(
-    name="Write wg-portal API credentials",
-    src=io.BytesIO(_wg_creds_env.encode()),
-    dest="/etc/secrets/wg-portal.env",
-    user="root",
-    group="root",
-    mode="600",
-)
+    # --- systemd service ---
 
-# --- systemd service ---
-
-service_unit = """\
+    service_unit = """\
 [Unit]
 Description=WireGuard Portal
 After=network-online.target wg-quick@wg0.service
@@ -143,69 +169,68 @@ LockPersonality=yes
 WantedBy=multi-user.target
 """
 
-files.put(
-    name="Write wg-portal systemd unit",
-    src=io.BytesIO(service_unit.encode()),
-    dest="/etc/systemd/system/wg-portal.service",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write wg-portal systemd unit",
+        src=io.BytesIO(service_unit.encode()),
+        dest="/etc/systemd/system/wg-portal.service",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-_config_hash = hashlib.sha256((config_yaml + service_unit).encode()).hexdigest()
+    _config_hash = hashlib.sha256((config_yaml + service_unit).encode()).hexdigest()
 
-systemd.service(
-    name="Enable wg-portal",
-    service="wg-portal",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable wg-portal",
+        service="wg-portal",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )
 
+    server.shell(
+        name="Restart wg-portal if config or credentials changed",
+        commands=[
+            restart_if_changed("wg-portal", _config_hash, env_files=("/etc/secrets/wg-portal.env",))
+        ],
+    )
 
-server.shell(
-    name="Restart wg-portal if config or credentials changed",
-    commands=[
-        restart_if_changed("wg-portal", _config_hash, env_files=("/etc/secrets/wg-portal.env",))
-    ],
-)
+    _wg_base_url = f"http://{WGPORTAL['host']}:{WGPORTAL['port']}"
+    _wg_endpoint = f"wg.{NETWORK['domain']}:{WIREGUARD['port']}"
+    _wg_dns = WIREGUARD["ip"]
 
-_wg_base_url = f"http://{WGPORTAL['host']}:{WGPORTAL['port']}"
-_wg_endpoint = f"wg.{NETWORK['domain']}:{WIREGUARD['port']}"
-_wg_dns = WIREGUARD["ip"]
+    server.shell(
+        name="Set wg0 PeerDefEndpoint via API",
+        commands=[
+            f"""
+            . /etc/secrets/wg-portal.env
+            NETRC=$(mktemp)
+            chmod 600 "$NETRC"
+            printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
+            trap 'rm -f "$NETRC"' EXIT
 
-server.shell(
-    name="Set wg0 PeerDefEndpoint via API",
-    commands=[
-        f"""
-        . /etc/secrets/wg-portal.env
-        NETRC=$(mktemp)
-        chmod 600 "$NETRC"
-        printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
-        trap 'rm -f "$NETRC"' EXIT
+            BASE_URL="{_wg_base_url}"
+            ENDPOINT="{_wg_endpoint}"
+            DNS="{_wg_dns}"
 
-        BASE_URL="{_wg_base_url}"
-        ENDPOINT="{_wg_endpoint}"
-        DNS="{_wg_dns}"
+            for i in $(seq 1 15); do
+              STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
+                --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
+              if [ "$STATUS" = "200" ]; then break; fi
+              sleep 2
+            done
 
-        for i in $(seq 1 15); do
-          STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
-            --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
-          if [ "$STATUS" = "200" ]; then break; fi
-          sleep 2
-        done
+            IFACE=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
+            if [ -z "$IFACE" ]; then echo "wg-portal: failed to get interface" >&2; exit 1; fi
 
-        IFACE=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/interface/by-id/wg0" 2>/dev/null || true)
-        if [ -z "$IFACE" ]; then echo "wg-portal: failed to get interface" >&2; exit 1; fi
+            CURRENT_EP=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefEndpoint',''))")
+            CURRENT_ADDRS=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Addresses',''))")
+            CURRENT_ALLOWED=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefAllowedIPs',''))")
+            if [ "$CURRENT_EP" = "$ENDPOINT" ] \
+              && echo "$CURRENT_ADDRS" | grep -q "{WIREGUARD["ip6"]}" \
+              && echo "$CURRENT_ALLOWED" | grep -q "0.0.0.0/0"; then exit 0; fi
 
-        CURRENT_EP=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefEndpoint',''))")
-        CURRENT_ADDRS=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Addresses',''))")
-        CURRENT_ALLOWED=$(echo "$IFACE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('PeerDefAllowedIPs',''))")
-        if [ "$CURRENT_EP" = "$ENDPOINT" ] \
-          && echo "$CURRENT_ADDRS" | grep -q "{WIREGUARD["ip6"]}" \
-          && echo "$CURRENT_ALLOWED" | grep -q "0.0.0.0/0"; then exit 0; fi
-
-        IFACE=$(echo "$IFACE" | python3 -c "
+            IFACE=$(echo "$IFACE" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 d['Mode'] = 'server'
@@ -219,44 +244,44 @@ d['Addresses'] = addrs
 print(json.dumps(d))
 ")
 
-        curl -sf -X PUT "$BASE_URL/api/v1/interface/by-id/wg0" \
-          -H "Content-Type: application/json" \
-          --netrc-file "$NETRC" \
-          -d "$IFACE" >/dev/null
+            curl -sf -X PUT "$BASE_URL/api/v1/interface/by-id/wg0" \
+              -H "Content-Type: application/json" \
+              --netrc-file "$NETRC" \
+              -d "$IFACE" >/dev/null
 
-        # API PUT silently drops create_default_peer — fix it in the DB.
-        sqlite3 /etc/wg-portal/wg-portal.db \
-          "UPDATE interfaces SET create_default_peer=1 WHERE identifier='wg0';"
-        """,
-    ],
-)
+            # API PUT silently drops create_default_peer — fix it in the DB.
+            sqlite3 /etc/wg-portal/wg-portal.db \
+              "UPDATE interfaces SET create_default_peer=1 WHERE identifier='wg0';"
+            """,
+        ],
+    )
 
-server.shell(
-    name="Create default WireGuard peer via API",
-    commands=[
-        f"""
-        PEER_STAMP=/etc/wg-portal/.pyinfra-peer-stamp
-        if [ -f "$PEER_STAMP" ]; then exit 0; fi
+    server.shell(
+        name="Create default WireGuard peer via API",
+        commands=[
+            f"""
+            PEER_STAMP=/etc/wg-portal/.pyinfra-peer-stamp
+            if [ -f "$PEER_STAMP" ]; then exit 0; fi
 
-        . /etc/secrets/wg-portal.env
-        NETRC=$(mktemp)
-        chmod 600 "$NETRC"
-        printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
-        trap 'rm -f "$NETRC"' EXIT
+            . /etc/secrets/wg-portal.env
+            NETRC=$(mktemp)
+            chmod 600 "$NETRC"
+            printf 'machine %s login %s password %s\\n' "{WGPORTAL["host"]}" "$WG_PORTAL_USER" "$WG_PORTAL_TOKEN" > "$NETRC"
+            trap 'rm -f "$NETRC"' EXIT
 
-        BASE_URL="http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
+            BASE_URL="http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
 
-        for i in $(seq 1 15); do
-          STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
-            --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
-          if [ "$STATUS" = "200" ]; then break; fi
-          sleep 2
-        done
+            for i in $(seq 1 15); do
+              STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' \
+                --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
+              if [ "$STATUS" = "200" ]; then break; fi
+              sleep 2
+            done
 
-        PEER=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
-        if [ -z "$PEER" ]; then echo "wg-portal: failed to prepare peer" >&2; exit 1; fi
+            PEER=$(curl -sf --netrc-file "$NETRC" "$BASE_URL/api/v1/peer/prepare/wg0" 2>/dev/null || true)
+            if [ -z "$PEER" ]; then echo "wg-portal: failed to prepare peer" >&2; exit 1; fi
 
-        PEER=$(echo "$PEER" | python3 -c "
+            PEER=$(echo "$PEER" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 d['DisplayName'] = 'Default'
@@ -271,20 +296,20 @@ if ipv4:
 print(json.dumps(d))
 ")
 
-        HTTP_CODE=$(curl -s -o /dev/null -w '%{{http_code}}' \
-          -X POST "$BASE_URL/api/v1/peer/new" \
-          -H "Content-Type: application/json" \
-          --netrc-file "$NETRC" \
-          -d "$PEER" 2>/dev/null)
+            HTTP_CODE=$(curl -s -o /dev/null -w '%{{http_code}}' \
+              -X POST "$BASE_URL/api/v1/peer/new" \
+              -H "Content-Type: application/json" \
+              --netrc-file "$NETRC" \
+              -d "$PEER" 2>/dev/null)
 
-        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-          touch "$PEER_STAMP"
-        elif [ "$HTTP_CODE" = "409" ]; then
-          touch "$PEER_STAMP"
-        else
-          echo "wg-portal: peer creation failed with HTTP $HTTP_CODE" >&2
-          exit 1
-        fi
-        """,
-    ],
-)
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+              touch "$PEER_STAMP"
+            elif [ "$HTTP_CODE" = "409" ]; then
+              touch "$PEER_STAMP"
+            else
+              echo "wg-portal: peer creation failed with HTTP $HTTP_CODE" >&2
+              exit 1
+            fi
+            """,
+        ],
+    )

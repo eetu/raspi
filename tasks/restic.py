@@ -23,10 +23,11 @@ import sys
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import CIFS, NETWORK, NTFY
+from group_data.all import CIFS, NETWORK
 from tasks.util import optional
 
 RESTIC = optional("RESTIC")
+NTFY = optional("NTFY")
 
 _BACKUPS = CIFS.get("backups")
 if RESTIC is None or _BACKUPS is None:
@@ -246,7 +247,24 @@ WantedBy=timers.target
 
     # --- Weekly prune ---
 
-    _ntfy_url = f"https://ntfy.{NETWORK['domain']}/{NTFY['topic']}"
+    # ntfy alerts on prune failure are dropped when NTFY is retired — prune
+    # still runs, it just goes unwatched.
+    if NTFY is not None:
+        _ntfy_url = f"https://ntfy.{NETWORK['domain']}/{NTFY['topic']}"
+        _prune_notify = f"""\
+NTFY_URL="{_ntfy_url}"
+
+notify_failure() {{
+  curl -sf -H "Title: restic prune failed" \\
+    -H "Priority: high" \\
+    -H "Tags: warning,floppy_disk" \\
+    -d "raspi-prune exited non-zero — repo may be growing unchecked. Check journalctl -u raspi-prune." \\
+    "$NTFY_URL" > /dev/null || true
+}}
+trap notify_failure ERR
+"""
+    else:
+        _prune_notify = ""
 
     _prune_script = f"""\
 #!/usr/bin/env bash
@@ -261,17 +279,7 @@ mkdir -p "$TMPDIR"
 
 ls "$(dirname "$RESTIC_REPOSITORY")/" > /dev/null
 
-NTFY_URL="{_ntfy_url}"
-
-notify_failure() {{
-  curl -sf -H "Title: restic prune failed" \\
-    -H "Priority: high" \\
-    -H "Tags: warning,floppy_disk" \\
-    -d "raspi-prune exited non-zero — repo may be growing unchecked. Check journalctl -u raspi-prune." \\
-    "$NTFY_URL" > /dev/null || true
-}}
-trap notify_failure ERR
-
+{_prune_notify}
 /usr/local/bin/restic prune --max-unused {RESTIC["prune_max_unused"]}
 /usr/local/bin/restic check --read-data-subset=5%
 """

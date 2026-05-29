@@ -60,22 +60,27 @@ Use when: upstream provides a container image.
 
 The deploy is opinionated about which services are core and which are à la carte. Tier matters for *how* a service is wired:
 
-- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `CIFS`, `HOSTS`, `SHELL`.
-- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Today: `RESTIC`, `AUDIOBOOKSHELF`, `SHELF`. Migrating another service is the recipe below.
+- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services.
+- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, `WGPORTAL`, `AUDIOBOOKSHELF`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
+- **Bundles & ripples** — a few optional dicts carry dependencies:
+  - **Scribe stack** is all-or-none: comment `SCRIBE`, `SHIM`, `SHELF` together to retire the audiobook app. `SCRIBE` gates `tasks/scribe.py`; the ffmpeg "press" worker is off-Pi (Mac mini) so retiring it is just dropping the press URL.
+  - **NTFY is the alert sink.** It degrades gracefully: `tasks/gatus.py` drops its alerting block + per-endpoint alert refs (stays a passive status page), `tasks/restic.py` skips the prune-failure alert, `tasks/trivy.py` keeps scanning but its ntfy pushes no-op, and `tasks/network_monitor.py` (alert-only) stops + disables its timer entirely.
+  - **HALO/FMI_PV_FORECAST** — `FMI_PV_FORECAST` is independently optional inside `tasks/halo.py`; retiring `HALO` disables both the dashboard and the PV timer.
 
 ### Retiring an optional service
 
 1. Comment the service's dict in `group_data/all.py`.
-2. Run the deploy. The task drops into its cleanup branch (stops + disables the systemd unit) and dependent tasks (`tasks/traefik.py`, `tasks/scribe.py`, `tasks/gatus.py`, …) drop the wiring tied to that dict.
-3. State on disk (`/var/lib/{service}`, BW item, Kanidm OIDC client) stays untouched so re-adding the block + redeploying is a clean rollback.
+2. Run the deploy. The task drops into its cleanup branch (stops + disables the systemd unit) and dependent tasks (`tasks/traefik.py`, `tasks/secrets.py`, `tasks/gatus.py`, …) drop the wiring tied to that dict.
+3. State on disk (`/var/lib/{service}`, BW item, Kanidm OIDC client, `/etc/secrets/{service}.env`) stays untouched so re-adding the block + redeploying is a clean rollback.
 
 ### Making a service retirement-safe
 
 1. **Consumers** — replace every `from group_data.all import X` with `X = optional("X")` and guard module-level uses with `if X:`.
 2. **Subdomain registry** — `_SUBDOMAIN_SOURCES` in `group_data/all.py` already resolves its members via `globals().get(name)`, so just having the dict commented is enough; no change needed.
-3. **Traefik** — extract the router + service YAML chunks into conditional variables (see `_audiobooks_router` / `_audiobooks_service` in `tasks/traefik.py` for the pattern), substitute them into `dynamic_yaml`.
-4. **Gatus** — gate the matching endpoint snippet on the dict's presence (see `_audiobookshelf_endpoint` / `_shelf_endpoint` in `tasks/gatus.py`). Skipping this step means gatus alerts on a 404 it caused itself.
-5. **The service's own task** — top-level branch on the dict; cleanup branch stops + disables the unit, full deploy branch does the usual work.
+3. **Traefik** — `tasks/traefik.py` is registry-driven: add a `(name, DICT, default_prefix)` tuple to `ROUTES` (the dict is an `optional()` lookup). A route whose dict is `None` is skipped automatically — routers + services for required hosts (pihole, idm, auth) plus the wildcard-cert declaration on the idm router stay put. Only special host shapes (extra monitor routers, oauth2 chains, non-default upstream scheme) need bespoke handling.
+4. **Secrets** — gate the service's `/etc/secrets/{service}.env` write in `tasks/secrets.py` behind `if X:` so a retired service stops getting a secret file.
+5. **Gatus** — gate the matching endpoint snippet on the dict's presence (see `_halo_endpoint` / `_shelf_endpoint` in `tasks/gatus.py`). Skipping this means gatus alerts on a 404 it caused itself.
+6. **The service's own task** — top-level branch on the dict; cleanup branch stops + disables the unit(s), full deploy branch does the usual work. See `tasks/navidrome.py` for the canonical shape.
 
 ## Refactoring while adding services
 

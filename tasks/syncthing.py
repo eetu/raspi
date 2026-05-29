@@ -1,4 +1,11 @@
-"""Syncthing: continuous file synchronization (native binary)."""
+"""Syncthing: continuous file synchronization (native binary).
+
+Optional service — comment the SYNCTHING dict in group_data/all.py to
+retire it. The task then drops into a cleanup branch that stops +
+disables the systemd unit and leaves /var/lib/syncthing (and the
+`syncthing` BW item) untouched, so re-adding the block + redeploying
+restores the service.
+"""
 
 import hashlib
 import io
@@ -7,74 +14,89 @@ import json
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import SYNCTHING
-from tasks.util import restart_if_changed
+from tasks.util import optional, restart_if_changed
 
-VERSION = SYNCTHING["version"]
-USER = SYNCTHING.get("user", "root")
-BINARY_URL = (
-    f"https://github.com/syncthing/syncthing/releases/download/{VERSION}/"
-    f"syncthing-linux-arm64-{VERSION}.tar.gz"
-)
+SYNCTHING = optional("SYNCTHING")
 
-_creds = bw.syncthing_creds()
-_user_json = json.dumps(_creds["username"])
-_pw_json = json.dumps(_creds["password"])
 
-# --- Binary ---
+if SYNCTHING is None:
+    # Retired: keep state on disk, just stop + disable the unit so the
+    # binary exits and the port is freed. Binary + /var/lib/syncthing
+    # are left in place — re-adding the SYNCTHING block + redeploying
+    # brings the service back.
+    systemd.service(
+        name="Stop + disable syncthing (kept on disk for rollback)",
+        service="syncthing",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    VERSION = SYNCTHING["version"]
+    USER = SYNCTHING.get("user", "root")
+    BINARY_URL = (
+        f"https://github.com/syncthing/syncthing/releases/download/{VERSION}/"
+        f"syncthing-linux-arm64-{VERSION}.tar.gz"
+    )
 
-server.shell(
-    name=f"Install Syncthing {VERSION}",
-    commands=[
-        f"""
-        STAMP=/usr/local/bin/.syncthing-version
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
-          curl -fsSL "{BINARY_URL}" | tar -xz --strip-components=1 \
-            -C /usr/local/bin "syncthing-linux-arm64-{VERSION}/syncthing"
-          chmod +x /usr/local/bin/syncthing
-          echo '{VERSION}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+    _creds = bw.syncthing_creds()
+    _user_json = json.dumps(_creds["username"])
+    _pw_json = json.dumps(_creds["password"])
 
-# --- Data directory ---
+    # --- Binary ---
 
-files.directory(
-    name="Create /var/lib/syncthing",
-    path="/var/lib/syncthing",
-    user=USER,
-    group=USER,
-    mode="700",
-    present=True,
-)
+    server.shell(
+        name=f"Install Syncthing {VERSION}",
+        commands=[
+            f"""
+            STAMP=/usr/local/bin/.syncthing-version
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
+              curl -fsSL "{BINARY_URL}" | tar -xz --strip-components=1 \
+                -C /usr/local/bin "syncthing-linux-arm64-{VERSION}/syncthing"
+              chmod +x /usr/local/bin/syncthing
+              echo '{VERSION}' > "$STAMP"
+            fi
+            """,
+        ],
+    )
 
-# --- Initial config with GUI credentials (first run only) ---
+    # --- Data directory ---
 
-server.shell(
-    name="Initialize Syncthing config",
-    commands=[
-        f"""
-        if [ ! -f /var/lib/syncthing/config.xml ]; then
-          runuser -u {USER} -- syncthing generate \
-            --config=/var/lib/syncthing \
-            --data=/var/lib/syncthing \
-            --gui-user={_creds["username"]!r} \
-            --gui-password={_creds["password"]!r}
-        fi
-        """,
-    ],
-)
+    files.directory(
+        name="Create /var/lib/syncthing",
+        path="/var/lib/syncthing",
+        user=USER,
+        group=USER,
+        mode="700",
+        present=True,
+    )
 
-# --- Reverse proxy + LAN-only config via direct XML patch ---
-# Patches config.xml before the daemon starts so settings are guaranteed on first run.
-# Restarts the daemon if it is already running so the new config takes effect.
+    # --- Initial config with GUI credentials (first run only) ---
 
-server.shell(
-    name="Configure Syncthing: reverse proxy + LAN-only",
-    commands=[
-        f"""
-        python3 -c '
+    server.shell(
+        name="Initialize Syncthing config",
+        commands=[
+            f"""
+            if [ ! -f /var/lib/syncthing/config.xml ]; then
+              runuser -u {USER} -- syncthing generate \
+                --config=/var/lib/syncthing \
+                --data=/var/lib/syncthing \
+                --gui-user={_creds["username"]!r} \
+                --gui-password={_creds["password"]!r}
+            fi
+            """,
+        ],
+    )
+
+    # --- Reverse proxy + LAN-only config via direct XML patch ---
+    # Patches config.xml before the daemon starts so settings are guaranteed on first run.
+    # Restarts the daemon if it is already running so the new config takes effect.
+
+    server.shell(
+        name="Configure Syncthing: reverse proxy + LAN-only",
+        commands=[
+            f"""
+            python3 -c '
 import xml.etree.ElementTree as ET
 p = "/var/lib/syncthing/config.xml"
 tree = ET.parse(p)
@@ -91,15 +113,15 @@ if el is None: el = ET.SubElement(gui, "insecureSkipHostcheck")
 el.text = "true"
 tree.write(p, encoding="utf-8", xml_declaration=True)
 '
-        chown {USER}:{USER} /var/lib/syncthing/config.xml
-        systemctl is-active --quiet syncthing && systemctl reload-or-restart syncthing || true
-        """,
-    ],
-)
+            chown {USER}:{USER} /var/lib/syncthing/config.xml
+            systemctl is-active --quiet syncthing && systemctl reload-or-restart syncthing || true
+            """,
+        ],
+    )
 
-# --- systemd service ---
+    # --- systemd service ---
 
-service_unit = f"""\
+    service_unit = f"""\
 [Unit]
 Description=Syncthing file synchronization
 After=network-online.target
@@ -133,35 +155,35 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 """
 
-files.put(
-    name="Write syncthing systemd unit",
-    src=io.BytesIO(service_unit.encode()),
-    dest="/etc/systemd/system/syncthing.service",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write syncthing systemd unit",
+        src=io.BytesIO(service_unit.encode()),
+        dest="/etc/systemd/system/syncthing.service",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-_unit_hash = hashlib.sha256(service_unit.encode()).hexdigest()
+    _unit_hash = hashlib.sha256(service_unit.encode()).hexdigest()
 
-systemd.service(
-    name="Enable syncthing",
-    service="syncthing",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable syncthing",
+        service="syncthing",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart syncthing if unit changed",
-    commands=[restart_if_changed("syncthing", _unit_hash)],
-)
+    server.shell(
+        name="Restart syncthing if unit changed",
+        commands=[restart_if_changed("syncthing", _unit_hash)],
+    )
 
-server.shell(
-    name="Sync Syncthing GUI credentials from Bitwarden",
-    commands=[
-        f"""
-        python3 << 'PYEOF'
+    server.shell(
+        name="Sync Syncthing GUI credentials from Bitwarden",
+        commands=[
+            f"""
+            python3 << 'PYEOF'
 import http.client, json, time, urllib.request, xml.etree.ElementTree as ET
 user = {_user_json}
 pw = {_pw_json}
@@ -187,6 +209,6 @@ except http.client.RemoteDisconnected:
     pass
 print("syncthing: GUI credentials synced")
 PYEOF
-        """,
-    ],
-)
+            """,
+        ],
+    )

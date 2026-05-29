@@ -1,14 +1,35 @@
-"""Network breach monitor: alerts when LAN-only services attempt blocked connections."""
+"""Network breach monitor: alerts when LAN-only services attempt blocked connections.
+
+ntfy is the only sink this monitor has — its entire job is to push an
+alert when nftables logs a BREACH. When NTFY is retired (commented in
+group_data/all.py) there's nowhere to send alerts, so the timer is
+stopped + disabled. The nftables blocking itself lives in
+tasks/network_restrict.py (required hardening) and is unaffected.
+"""
 
 import io
 
 from pyinfra.operations import files, systemd
 
-from group_data.all import NETWORK, NTFY
+from group_data.all import NETWORK
+from tasks.util import optional
 
-NTFY_URL = f"https://ntfy.{NETWORK['domain']}/{NTFY['topic']}"
+NTFY = optional("NTFY")
 
-check_script = f"""\
+
+if NTFY is None:
+    # No alert sink — disable the breach-check timer.
+    systemd.service(
+        name="Stop + disable check-network-breaches.timer",
+        service="check-network-breaches.timer",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    NTFY_URL = f"https://ntfy.{NETWORK['domain']}/{NTFY['topic']}"
+
+    check_script = f"""\
 #!/bin/bash
 set -euo pipefail
 
@@ -36,7 +57,7 @@ fi
 date -Iseconds > "$STAMP"
 """
 
-service_unit = """\
+    service_unit = """\
 [Unit]
 Description=Check for blocked network access from restricted services
 
@@ -45,7 +66,7 @@ Type=oneshot
 ExecStart=/usr/local/bin/check-network-breaches.sh
 """
 
-timer_unit = """\
+    timer_unit = """\
 [Unit]
 Description=Periodic network breach check
 
@@ -57,24 +78,24 @@ Persistent=true
 WantedBy=timers.target
 """
 
-for dest, content, mode in [
-    ("/usr/local/bin/check-network-breaches.sh", check_script, "755"),
-    ("/etc/systemd/system/check-network-breaches.service", service_unit, "644"),
-    ("/etc/systemd/system/check-network-breaches.timer", timer_unit, "644"),
-]:
-    files.put(
-        name=f"Write {dest.split('/')[-1]}",
-        src=io.BytesIO(content.encode()),
-        dest=dest,
-        user="root",
-        group="root",
-        mode=mode,
-    )
+    for dest, content, mode in [
+        ("/usr/local/bin/check-network-breaches.sh", check_script, "755"),
+        ("/etc/systemd/system/check-network-breaches.service", service_unit, "644"),
+        ("/etc/systemd/system/check-network-breaches.timer", timer_unit, "644"),
+    ]:
+        files.put(
+            name=f"Write {dest.split('/')[-1]}",
+            src=io.BytesIO(content.encode()),
+            dest=dest,
+            user="root",
+            group="root",
+            mode=mode,
+        )
 
-systemd.service(
-    name="Enable check-network-breaches.timer",
-    service="check-network-breaches.timer",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable check-network-breaches.timer",
+        service="check-network-breaches.timer",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )

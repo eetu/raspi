@@ -1,4 +1,11 @@
-"""Beszel: lightweight server monitoring (hub as native binary, agent as Podman Quadlet)."""
+"""Beszel: lightweight server monitoring (hub as native binary, agent as Podman Quadlet).
+
+Optional service — comment the BESZEL dict in group_data/all.py to retire it.
+The task then drops into a cleanup branch that stops + disables both the
+beszel-hub and beszel-agent units and leaves /var/lib/beszel-hub,
+/var/lib/beszel-agent, the BW item, and the Kanidm OIDC client untouched, so
+re-adding the block + redeploying restores the service.
+"""
 
 import hashlib
 import io
@@ -6,78 +13,98 @@ import io
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import BESZEL
-from tasks.util import restart_if_changed
+from tasks.util import optional, restart_if_changed
 
-VERSION = BESZEL["version"]
-_HUB_RELEASE = (
-    f"https://github.com/henrygd/beszel/releases/download/{VERSION}/beszel_Linux_arm64.tar.gz"
-)
+BESZEL = optional("BESZEL")
 
-# --- Hub binary ---
 
-server.shell(
-    name=f"Install beszel hub {VERSION}",
-    commands=[
-        f"""
-        STAMP=/usr/local/bin/.beszel-version
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
-          curl -fsSL "{_HUB_RELEASE}" | tar -xz -C /usr/local/bin beszel
-          chmod +x /usr/local/bin/beszel
-          echo '{VERSION}' > "$STAMP"
-        fi
-        """,
-    ],
-)
-
-# --- Data dirs ---
-
-for path in ("/var/lib/beszel-hub", "/var/lib/beszel-agent"):
-    files.directory(
-        name=f"Create {path}",
-        path=path,
-        user="root",
-        group="root",
-        mode="700",
-        present=True,
+if BESZEL is None:
+    # Retired: keep state on disk, just stop + disable both units so the
+    # processes exit and the ports are freed. Files in /var/lib/beszel-hub and
+    # /var/lib/beszel-agent are left untouched — re-adding the BESZEL block +
+    # redeploying brings the service back cleanly.
+    systemd.service(
+        name="Stop + disable beszel-hub (kept on disk for rollback)",
+        service="beszel-hub",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+    systemd.service(
+        name="Stop + disable beszel-agent (kept on disk for rollback)",
+        service="beszel-agent",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    VERSION = BESZEL["version"]
+    _HUB_RELEASE = (
+        f"https://github.com/henrygd/beszel/releases/download/{VERSION}/beszel_Linux_arm64.tar.gz"
     )
 
-# --- Env files ---
-# Hub: USER_EMAIL/USER_PASSWORD seed the hub on first boot. Both the PocketBase
-# superuser and the regular hub UI user are synced from BW on every deploy, so
-# password rotation is: update BW → redeploy.
-# Agent: TOKEN (universal) + KEY (hub ed25519 pubkey) are written on-Pi after
-# the hub starts. TOKEN is only fetched once; KEY is synced on every deploy.
+    # --- Hub binary ---
 
-_admin = bw.beszel_admin_creds()
-_hub_env = (
-    f'USER_EMAIL="{_admin["email"]}"\nUSER_PASSWORD="{_admin["password"]}"\nUSER_CREATION=true\n'
-)
+    server.shell(
+        name=f"Install beszel hub {VERSION}",
+        commands=[
+            f"""
+            STAMP=/usr/local/bin/.beszel-version
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
+              curl -fsSL "{_HUB_RELEASE}" | tar -xz -C /usr/local/bin beszel
+              chmod +x /usr/local/bin/beszel
+              echo '{VERSION}' > "$STAMP"
+            fi
+            """,
+        ],
+    )
 
-files.put(
-    name="Write beszel-hub env",
-    src=io.BytesIO(_hub_env.encode()),
-    dest="/etc/secrets/beszel-hub.env",
-    user="root",
-    group="root",
-    mode="600",
-)
+    # --- Data dirs ---
 
-server.shell(
-    name="Initialize beszel-agent env if not present",
-    commands=[
-        """
-        if [ ! -f /etc/secrets/beszel-agent.env ]; then
-          printf 'TOKEN=\nKEY=\n' > /etc/secrets/beszel-agent.env
-          chmod 600 /etc/secrets/beszel-agent.env
-        fi
-        """,
-    ],
-)
+    for path in ("/var/lib/beszel-hub", "/var/lib/beszel-agent"):
+        files.directory(
+            name=f"Create {path}",
+            path=path,
+            user="root",
+            group="root",
+            mode="700",
+            present=True,
+        )
 
-# --- systemd units ---
+    # --- Env files ---
+    # Hub: USER_EMAIL/USER_PASSWORD seed the hub on first boot. Both the PocketBase
+    # superuser and the regular hub UI user are synced from BW on every deploy, so
+    # password rotation is: update BW → redeploy.
+    # Agent: TOKEN (universal) + KEY (hub ed25519 pubkey) are written on-Pi after
+    # the hub starts. TOKEN is only fetched once; KEY is synced on every deploy.
 
-hub_unit = f"""\
+    _admin = bw.beszel_admin_creds()
+    _hub_env = f'USER_EMAIL="{_admin["email"]}"\nUSER_PASSWORD="{_admin["password"]}"\nUSER_CREATION=true\n'
+
+    files.put(
+        name="Write beszel-hub env",
+        src=io.BytesIO(_hub_env.encode()),
+        dest="/etc/secrets/beszel-hub.env",
+        user="root",
+        group="root",
+        mode="600",
+    )
+
+    server.shell(
+        name="Initialize beszel-agent env if not present",
+        commands=[
+            """
+            if [ ! -f /etc/secrets/beszel-agent.env ]; then
+              printf 'TOKEN=\nKEY=\n' > /etc/secrets/beszel-agent.env
+              chmod 600 /etc/secrets/beszel-agent.env
+            fi
+            """,
+        ],
+    )
+
+    # --- systemd units ---
+
+    hub_unit = f"""\
 [Unit]
 Description=Beszel monitoring hub
 After=network-online.target
@@ -107,11 +134,11 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 """
 
-# Agent runs as a Podman Quadlet so it can monitor containers via the Podman
-# socket. Network=host is required for accurate network interface statistics.
-# Outbound mode: agent connects to hub (no SSH listener needed) and
-# auto-registers the Pi system on first connect using the universal token.
-agent_quadlet = f"""\
+    # Agent runs as a Podman Quadlet so it can monitor containers via the Podman
+    # socket. Network=host is required for accurate network interface statistics.
+    # Outbound mode: agent connects to hub (no SSH listener needed) and
+    # auto-registers the Pi system on first connect using the universal token.
+    agent_quadlet = f"""\
 [Unit]
 Description=Beszel monitoring agent
 After=beszel-hub.service network-online.target
@@ -137,84 +164,84 @@ MemoryMax=32M
 WantedBy=multi-user.target
 """
 
-files.put(
-    name="Write beszel-hub systemd unit",
-    src=io.BytesIO(hub_unit.encode()),
-    dest="/etc/systemd/system/beszel-hub.service",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write beszel-hub systemd unit",
+        src=io.BytesIO(hub_unit.encode()),
+        dest="/etc/systemd/system/beszel-hub.service",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-files.put(
-    name="Write beszel-agent Quadlet",
-    src=io.BytesIO(agent_quadlet.encode()),
-    dest="/etc/containers/systemd/beszel-agent.container",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write beszel-agent Quadlet",
+        src=io.BytesIO(agent_quadlet.encode()),
+        dest="/etc/containers/systemd/beszel-agent.container",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-_hub_hash = hashlib.sha256(hub_unit.encode()).hexdigest()
-_agent_quadlet_hash = hashlib.sha256(agent_quadlet.encode()).hexdigest()
+    _hub_hash = hashlib.sha256(hub_unit.encode()).hexdigest()
+    _agent_quadlet_hash = hashlib.sha256(agent_quadlet.encode()).hexdigest()
 
-systemd.service(
-    name="Enable beszel-hub",
-    service="beszel-hub",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable beszel-hub",
+        service="beszel-hub",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Reload Quadlet units",
-    commands=[
-        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
-    ],
-)
+    server.shell(
+        name="Reload Quadlet units",
+        commands=[
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
+        ],
+    )
 
-systemd.service(
-    name="Start beszel-agent",
-    service="beszel-agent",
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Start beszel-agent",
+        service="beszel-agent",
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart beszel-hub if unit or env changed",
-    commands=[
-        restart_if_changed("beszel-hub", _hub_hash, env_files=("/etc/secrets/beszel-hub.env",))
-    ],
-)
+    server.shell(
+        name="Restart beszel-hub if unit or env changed",
+        commands=[
+            restart_if_changed("beszel-hub", _hub_hash, env_files=("/etc/secrets/beszel-hub.env",))
+        ],
+    )
 
-# Idempotent admin sync: upsert PocketBase superuser from the hub env file each
-# deploy. No-op if USER_EMAIL/USER_PASSWORD are empty.
-server.shell(
-    name="Sync beszel superuser from Bitwarden",
-    commands=[
-        """
-        set -a
-        . /etc/secrets/beszel-hub.env
-        set +a
-        if [ -n "$USER_EMAIL" ] && [ -n "$USER_PASSWORD" ]; then
-          cd /var/lib/beszel-hub
-          /usr/local/bin/beszel superuser upsert "$USER_EMAIL" "$USER_PASSWORD"
-        fi
-        """,
-    ],
-)
+    # Idempotent admin sync: upsert PocketBase superuser from the hub env file each
+    # deploy. No-op if USER_EMAIL/USER_PASSWORD are empty.
+    server.shell(
+        name="Sync beszel superuser from Bitwarden",
+        commands=[
+            """
+            set -a
+            . /etc/secrets/beszel-hub.env
+            set +a
+            if [ -n "$USER_EMAIL" ] && [ -n "$USER_PASSWORD" ]; then
+              cd /var/lib/beszel-hub
+              /usr/local/bin/beszel superuser upsert "$USER_EMAIL" "$USER_PASSWORD"
+            fi
+            """,
+        ],
+    )
 
-# Sync the regular hub user's password on every deploy so password rotation
-# works by updating BW and redeploying. Uses superuser token to PATCH the
-# user record. Credentials passed via env so special chars are safe.
-server.shell(
-    name="Sync beszel user password from Bitwarden",
-    commands=[
-        f"""
-        set -a; . /etc/secrets/beszel-hub.env; set +a
-        if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then exit 0; fi
-        export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
-        python3 << 'PYEOF'
+    # Sync the regular hub user's password on every deploy so password rotation
+    # works by updating BW and redeploying. Uses superuser token to PATCH the
+    # user record. Credentials passed via env so special chars are safe.
+    server.shell(
+        name="Sync beszel user password from Bitwarden",
+        commands=[
+            f"""
+            set -a; . /etc/secrets/beszel-hub.env; set +a
+            if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then exit 0; fi
+            export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
+            python3 << 'PYEOF'
 import json, os, urllib.request
 email = os.environ["__BZ_EMAIL"]
 pw    = os.environ["__BZ_PW"]
@@ -233,80 +260,80 @@ except Exception as e:
     print(f"beszel: user password sync failed: {{e}}")
     raise SystemExit(1)
 PYEOF
-        unset __BZ_EMAIL __BZ_PW
-        """,
-    ],
-)
+            unset __BZ_EMAIL __BZ_PW
+            """,
+        ],
+    )
 
-# Reconcile the hub universal token into the agent env file. Always passes
-# `enable=1&permanent=1` so the value is persisted in the hub DB; if a token
-# already exists in the env file (e.g. an ephemeral one from before this fix
-# went in) it is forwarded as `&token=<existing>` so the hub upserts the same
-# value as permanent — the running agent's registration stays valid and the
-# call is idempotent across re-deploys (hub api.go:230-247).
-server.shell(
-    name="Reconcile beszel universal token from hub API",
-    commands=[
-        f"""
-        set -a; . /etc/secrets/beszel-hub.env; set +a
-        if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then
-          echo "beszel: USER_EMAIL/USER_PASSWORD not set, skipping token sync" >&2; exit 0
-        fi
-        CURRENT_TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
-        # Wait for hub to accept connections
-        for i in $(seq 1 30); do
-          curl -sf http://{BESZEL["host"]}:{BESZEL["port"]}/api/health >/dev/null 2>&1 && break
-          sleep 1
-        done
-        # Auth as regular user (universal-token endpoint requires this, not superuser)
-        export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
-        JWT=$(curl -sf -X POST http://{BESZEL["host"]}:{BESZEL["port"]}/api/collections/users/auth-with-password \
-          -H 'Content-Type: application/json' \
-          -d "$(python3 -c 'import json,os; print(json.dumps({{"identity":os.environ["__BZ_EMAIL"],"password":os.environ["__BZ_PW"]}}),end="")')" \
-          | grep -oP '"token":"\\K[^"]+')
-        unset __BZ_EMAIL __BZ_PW
-        if [ -z "$JWT" ]; then
-          echo "beszel: failed to authenticate for token fetch" >&2; exit 1
-        fi
-        # Forward existing token if any so we promote it to permanent in place
-        # rather than minting a fresh UUID and breaking the agent's session.
-        URL="http://{BESZEL["host"]}:{BESZEL["port"]}/api/beszel/universal-token?enable=1&permanent=1"
-        if [ -n "$CURRENT_TOKEN" ]; then URL="$URL&token=$CURRENT_TOKEN"; fi
-        TOKEN=$(curl -sf "$URL" -H "Authorization: $JWT" | grep -oP '"token":"\\K[^"]+')
-        if [ -z "$TOKEN" ]; then
-          echo "beszel: failed to fetch universal token" >&2; exit 1
-        fi
-        HUB_KEY=$(ssh-keygen -y -f /var/lib/beszel-hub/beszel_data/id_ed25519)
-        printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
-        chmod 600 /etc/secrets/beszel-agent.env
-        echo "beszel: universal token (permanent) and hub key written to agent env"
-        """,
-    ],
-)
+    # Reconcile the hub universal token into the agent env file. Always passes
+    # `enable=1&permanent=1` so the value is persisted in the hub DB; if a token
+    # already exists in the env file (e.g. an ephemeral one from before this fix
+    # went in) it is forwarded as `&token=<existing>` so the hub upserts the same
+    # value as permanent — the running agent's registration stays valid and the
+    # call is idempotent across re-deploys (hub api.go:230-247).
+    server.shell(
+        name="Reconcile beszel universal token from hub API",
+        commands=[
+            f"""
+            set -a; . /etc/secrets/beszel-hub.env; set +a
+            if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then
+              echo "beszel: USER_EMAIL/USER_PASSWORD not set, skipping token sync" >&2; exit 0
+            fi
+            CURRENT_TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
+            # Wait for hub to accept connections
+            for i in $(seq 1 30); do
+              curl -sf http://{BESZEL["host"]}:{BESZEL["port"]}/api/health >/dev/null 2>&1 && break
+              sleep 1
+            done
+            # Auth as regular user (universal-token endpoint requires this, not superuser)
+            export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
+            JWT=$(curl -sf -X POST http://{BESZEL["host"]}:{BESZEL["port"]}/api/collections/users/auth-with-password \
+              -H 'Content-Type: application/json' \
+              -d "$(python3 -c 'import json,os; print(json.dumps({{"identity":os.environ["__BZ_EMAIL"],"password":os.environ["__BZ_PW"]}}),end="")')" \
+              | grep -oP '"token":"\\K[^"]+')
+            unset __BZ_EMAIL __BZ_PW
+            if [ -z "$JWT" ]; then
+              echo "beszel: failed to authenticate for token fetch" >&2; exit 1
+            fi
+            # Forward existing token if any so we promote it to permanent in place
+            # rather than minting a fresh UUID and breaking the agent's session.
+            URL="http://{BESZEL["host"]}:{BESZEL["port"]}/api/beszel/universal-token?enable=1&permanent=1"
+            if [ -n "$CURRENT_TOKEN" ]; then URL="$URL&token=$CURRENT_TOKEN"; fi
+            TOKEN=$(curl -sf "$URL" -H "Authorization: $JWT" | grep -oP '"token":"\\K[^"]+')
+            if [ -z "$TOKEN" ]; then
+              echo "beszel: failed to fetch universal token" >&2; exit 1
+            fi
+            HUB_KEY=$(ssh-keygen -y -f /var/lib/beszel-hub/beszel_data/id_ed25519)
+            printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
+            chmod 600 /etc/secrets/beszel-agent.env
+            echo "beszel: universal token (permanent) and hub key written to agent env"
+            """,
+        ],
+    )
 
-# Sync hub public key into agent env on every deploy (stable but changes if
-# hub data dir is wiped). Leaves TOKEN untouched.
-server.shell(
-    name="Sync beszel hub key into agent env",
-    commands=[
-        """
-        KEY_FILE=/var/lib/beszel-hub/beszel_data/id_ed25519
-        if [ ! -f "$KEY_FILE" ]; then exit 0; fi
-        HUB_KEY=$(ssh-keygen -y -f "$KEY_FILE")
-        CURRENT_KEY=$(grep -oP 'KEY=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
-        if [ "$CURRENT_KEY" = "$HUB_KEY" ]; then exit 0; fi
-        TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
-        printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
-        chmod 600 /etc/secrets/beszel-agent.env
-        """,
-    ],
-)
+    # Sync hub public key into agent env on every deploy (stable but changes if
+    # hub data dir is wiped). Leaves TOKEN untouched.
+    server.shell(
+        name="Sync beszel hub key into agent env",
+        commands=[
+            """
+            KEY_FILE=/var/lib/beszel-hub/beszel_data/id_ed25519
+            if [ ! -f "$KEY_FILE" ]; then exit 0; fi
+            HUB_KEY=$(ssh-keygen -y -f "$KEY_FILE")
+            CURRENT_KEY=$(grep -oP 'KEY=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
+            if [ "$CURRENT_KEY" = "$HUB_KEY" ]; then exit 0; fi
+            TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
+            printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
+            chmod 600 /etc/secrets/beszel-agent.env
+            """,
+        ],
+    )
 
-server.shell(
-    name="Restart beszel-agent if Quadlet or env changed",
-    commands=[
-        restart_if_changed(
-            "beszel-agent", _agent_quadlet_hash, env_files=("/etc/secrets/beszel-agent.env",)
-        )
-    ],
-)
+    server.shell(
+        name="Restart beszel-agent if Quadlet or env changed",
+        commands=[
+            restart_if_changed(
+                "beszel-agent", _agent_quadlet_hash, env_files=("/etc/secrets/beszel-agent.env",)
+            )
+        ],
+    )

@@ -1,48 +1,71 @@
-"""VuIO: DLNA media server for LAN streaming (native Rust binary)."""
+"""VuIO: DLNA media server for LAN streaming (native Rust binary).
+
+Optional service — comment the VUIO dict in group_data/all.py to
+retire it. The task then drops into a cleanup branch that stops +
+disables the systemd unit and leaves /usr/local/bin/vuio and
+/var/lib/vuio untouched, so re-adding the block + redeploying
+restores the service.
+"""
 
 import hashlib
 import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import VUIO
-from tasks.util import restart_if_changed
+from tasks.util import optional, restart_if_changed
 
-VERSION = VUIO["version"]
-BINARY_URL = f"https://github.com/vuiodev/vuio/releases/download/{VERSION}/vuio-linux-arm64.tar.gz"
+VUIO = optional("VUIO")
 
-# --- Binary ---
 
-server.shell(
-    name=f"Install vuio {VERSION}",
-    commands=[
-        f"""
-        STAMP=/usr/local/bin/.vuio-version
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
-          curl -fsSL "{BINARY_URL}" -o /tmp/vuio.tar.gz
-          tar -xzf /tmp/vuio.tar.gz -C /usr/local/bin/ vuio
-          chmod +x /usr/local/bin/vuio
-          rm /tmp/vuio.tar.gz
-          echo '{VERSION}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+if VUIO is None:
+    # Retired: keep binary + state on disk, just stop + disable the unit
+    # so the port is freed. Re-adding the VUIO block + redeploying
+    # brings the service back.
+    systemd.service(
+        name="Stop + disable vuio (kept on disk for rollback)",
+        service="vuio",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    VERSION = VUIO["version"]
+    BINARY_URL = (
+        f"https://github.com/vuiodev/vuio/releases/download/{VERSION}/vuio-linux-arm64.tar.gz"
+    )
 
-# --- Data directory ---
+    # --- Binary ---
 
-files.directory(
-    name="Create /var/lib/vuio",
-    path="/var/lib/vuio",
-    user="root",
-    group="root",
-    mode="700",
-    present=True,
-)
+    server.shell(
+        name=f"Install vuio {VERSION}",
+        commands=[
+            f"""
+            STAMP=/usr/local/bin/.vuio-version
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
+              curl -fsSL "{BINARY_URL}" -o /tmp/vuio.tar.gz
+              tar -xzf /tmp/vuio.tar.gz -C /usr/local/bin/ vuio
+              chmod +x /usr/local/bin/vuio
+              rm /tmp/vuio.tar.gz
+              echo '{VERSION}' > "$STAMP"
+            fi
+            """,
+        ],
+    )
 
-# --- Config ---
+    # --- Data directory ---
 
-config_toml = f"""\
+    files.directory(
+        name="Create /var/lib/vuio",
+        path="/var/lib/vuio",
+        user="root",
+        group="root",
+        mode="700",
+        present=True,
+    )
+
+    # --- Config ---
+
+    config_toml = f"""\
 [server]
 port = {VUIO["port"]}
 interface = "0.0.0.0"
@@ -74,18 +97,18 @@ vacuum_on_startup = false
 backup_enabled = false
 """
 
-files.put(
-    name="Write vuio config",
-    src=io.BytesIO(config_toml.encode()),
-    dest="/var/lib/vuio/config.toml",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write vuio config",
+        src=io.BytesIO(config_toml.encode()),
+        dest="/var/lib/vuio/config.toml",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-# --- systemd service ---
+    # --- systemd service ---
 
-service_unit = f"""\
+    service_unit = f"""\
 [Unit]
 Description=VuIO DLNA Media Server
 After=network-online.target mnt-movies.automount
@@ -115,26 +138,26 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 """
 
-files.put(
-    name="Write vuio systemd unit",
-    src=io.BytesIO(service_unit.encode()),
-    dest="/etc/systemd/system/vuio.service",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write vuio systemd unit",
+        src=io.BytesIO(service_unit.encode()),
+        dest="/etc/systemd/system/vuio.service",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-_unit_hash = hashlib.sha256((service_unit + config_toml).encode()).hexdigest()
+    _unit_hash = hashlib.sha256((service_unit + config_toml).encode()).hexdigest()
 
-systemd.service(
-    name="Enable vuio",
-    service="vuio",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable vuio",
+        service="vuio",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart vuio if unit changed",
-    commands=[restart_if_changed("vuio", _unit_hash)],
-)
+    server.shell(
+        name="Restart vuio if unit changed",
+        commands=[restart_if_changed("vuio", _unit_hash)],
+    )

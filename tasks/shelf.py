@@ -5,10 +5,11 @@ read-only (`:ro` bind), exposes a tight Audiobookshelf API subset on
 port 3006. Listen This and other ABS clients connect here directly,
 bypassing the real audiobookshelf entirely.
 
-Optional service — drop the SHELF dict from `group_data/all.py` (or
-comment the `local.include("tasks/shelf.py")` in `deploy.py`) and the
-container simply won't be deployed. scribe itself doesn't depend on
-shelf for any of its own work.
+Optional service — part of the scribe bundle. Comment the SHELF dict
+in `group_data/all.py` to retire it. The task then stops + disables the
+systemd unit and leaves /var/lib/scribe and the BW item untouched, so
+re-adding the block + redeploying restores the service. scribe itself
+doesn't depend on shelf for any of its own work.
 """
 
 import hashlib
@@ -17,28 +18,43 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import CIFS, SHELF
+from group_data.all import CIFS
+from tasks.util import optional
 
-_audiobooks = CIFS["audiobooks"]["mountpoint"]
-_base_env = {
-    "SHELF_BIND": f"{SHELF['host']}:{SHELF['port']}",
-    "SHELF_DB_PATH": "/data/scribe.db",
-    "SHELF_LIBRARY_DIR": f"{_audiobooks}/audible/books",
-}
+SHELF = optional("SHELF")
 
 
-def _env_line(k: str, v) -> str:
-    if not isinstance(v, str):
-        v = json.dumps(v, ensure_ascii=False)
-    escaped = v.replace("\\", "\\\\").replace('"', '\\"')
-    return f'Environment="{k}={escaped}"'
+if SHELF is None:
+    # Retired: keep state on disk, just stop + disable the unit so the
+    # container exits and the port is freed.
+    systemd.service(
+        name="Stop + disable shelf (kept on disk for rollback)",
+        service="shelf",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    _audiobooks = CIFS["audiobooks"]["mountpoint"]
+    _base_env = {
+        "SHELF_BIND": f"{SHELF['host']}:{SHELF['port']}",
+        "SHELF_DB_PATH": "/data/scribe.db",
+        "SHELF_LIBRARY_DIR": f"{_audiobooks}/audible/books",
+    }
 
+    def _env_line(k: str, v) -> str:
+        if not isinstance(v, str):
+            v = json.dumps(v, ensure_ascii=False)
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+        return f'Environment="{k}={escaped}"'
 
-_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **SHELF.get("env", {})}.items())
+    _env_lines = "\n".join(
+        _env_line(k, v) for k, v in {**_base_env, **SHELF.get("env", {})}.items()
+    )
 
-# /var/lib/scribe holds scribe.db; mounted :ro into shelf so the
-# read-only DB open in code is also enforced at the container boundary.
-quadlet = f"""\
+    # /var/lib/scribe holds scribe.db; mounted :ro into shelf so the
+    # read-only DB open in code is also enforced at the container boundary.
+    quadlet = f"""\
 [Unit]
 Description=Scribe-Shelf — read-only ABS-compatible view of scribe's library
 After=network-online.target mnt-audiobooks.automount scribe.service
@@ -66,48 +82,48 @@ MemorySwapMax=32M
 WantedBy=multi-user.target
 """
 
-_quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
+    _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 
-files.put(
-    name="Write shelf.container quadlet",
-    src=io.BytesIO(quadlet.encode()),
-    dest="/etc/containers/systemd/shelf.container",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write shelf.container quadlet",
+        src=io.BytesIO(quadlet.encode()),
+        dest="/etc/containers/systemd/shelf.container",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-server.shell(
-    name="Reload quadlet units (shelf)",
-    commands=[
-        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true"
-    ],
-)
+    server.shell(
+        name="Reload quadlet units (shelf)",
+        commands=[
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true"
+        ],
+    )
 
-systemd.service(
-    name="Start Shelf",
-    service="shelf",
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Start Shelf",
+        service="shelf",
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart Shelf if quadlet changed",
-    commands=[
-        f"""
+    server.shell(
+        name="Restart Shelf if quadlet changed",
+        commands=[
+            f"""
         STAMP=/etc/containers/systemd/.shelf-quadlet-stamp
         if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
           systemctl restart shelf
           echo '{_quadlet_hash}' > "$STAMP"
         fi
         """,
-    ],
-)
+        ],
+    )
 
-server.shell(
-    name="Restart Shelf if env changed",
-    commands=[
-        """
+    server.shell(
+        name="Restart Shelf if env changed",
+        commands=[
+            """
         ESTAMP=/etc/secrets/.shelf-env-stamp
         ENV_HASH=$(sha256sum /etc/secrets/shelf.env | cut -d' ' -f1)
         if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
@@ -115,18 +131,18 @@ server.shell(
           echo "$ENV_HASH" > "$ESTAMP"
         fi
         """,
-    ],
-)
+        ],
+    )
 
-server.shell(
-    name="Pull latest Shelf image and restart if updated",
-    commands=[
-        f"""
+    server.shell(
+        name="Pull latest Shelf image and restart if updated",
+        commands=[
+            f"""
         NEW=$(podman pull -q {SHELF["image"]})
         CUR=$(podman inspect --format '{{{{.Image}}}}' shelf 2>/dev/null || echo "")
         if [ "$NEW" != "$CUR" ]; then
           systemctl restart shelf
         fi
         """,
-    ],
-)
+        ],
+    )

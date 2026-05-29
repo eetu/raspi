@@ -1,4 +1,12 @@
-"""Halo: Podman Quadlet container unit, plus FMI PV forecast runner timer."""
+"""Halo: Podman Quadlet container unit, plus FMI PV forecast runner timer.
+
+Optional service — comment the HALO dict in group_data/all.py to retire
+it. The task then stops + disables both the `halo` unit and the
+`fmi-pv-forecast.timer`, leaving /var/lib/halo and the `halo` BW item
+untouched for rollback. FMI_PV_FORECAST is independently optional: keep
+HALO but comment FMI_PV_FORECAST to run the dashboard without the PV
+forecast feed (its timer is then disabled on its own).
+"""
 
 import hashlib
 import io
@@ -6,28 +14,48 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import FMI_PV_FORECAST, HALO
+from tasks.util import optional
 
-_base_env = {
-    "PORT": str(HALO["port"]),
-    "HOSTNAME": HALO["host"],
-    "HALO_DB_PATH": "/data/halo.db",
-}
+HALO = optional("HALO")
+FMI_PV_FORECAST = optional("FMI_PV_FORECAST")
 
 
-def _env_line(k: str, v) -> str:
-    # Non-strings (dicts/lists/numbers/bools) → compact JSON. systemd.exec(5):
-    # Environment= splits on whitespace unless value is double-quoted; inside
-    # the quotes \" and \\ are the only escapes.
-    if not isinstance(v, str):
-        v = json.dumps(v, ensure_ascii=False)
-    escaped = v.replace("\\", "\\\\").replace('"', '\\"')
-    return f'Environment="{k}={escaped}"'
+if HALO is None:
+    # Retired: stop + disable the dashboard and its PV forecast timer.
+    # State on /var/lib/halo is left in place for rollback.
+    systemd.service(
+        name="Stop + disable halo (kept on disk for rollback)",
+        service="halo",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+    systemd.service(
+        name="Stop + disable fmi-pv-forecast.timer",
+        service="fmi-pv-forecast.timer",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    _base_env = {
+        "PORT": str(HALO["port"]),
+        "HOSTNAME": HALO["host"],
+        "HALO_DB_PATH": "/data/halo.db",
+    }
 
+    def _env_line(k: str, v) -> str:
+        # Non-strings (dicts/lists/numbers/bools) → compact JSON. systemd.exec(5):
+        # Environment= splits on whitespace unless value is double-quoted; inside
+        # the quotes \" and \\ are the only escapes.
+        if not isinstance(v, str):
+            v = json.dumps(v, ensure_ascii=False)
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+        return f'Environment="{k}={escaped}"'
 
-_env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HALO["env"]}.items())
+    _env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **HALO["env"]}.items())
 
-quadlet = f"""\
+    quadlet = f"""\
 [Unit]
 Description=Halo Dashboard
 After=network-online.target
@@ -54,95 +82,105 @@ MemorySwapMax=64M
 WantedBy=multi-user.target
 """
 
-_quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
+    _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 
-files.directory(
-    name="Create /var/lib/halo",
-    path="/var/lib/halo",
-    user="root",
-    group="root",
-    mode="777",
-    present=True,
-)
+    files.directory(
+        name="Create /var/lib/halo",
+        path="/var/lib/halo",
+        user="root",
+        group="root",
+        mode="777",
+        present=True,
+    )
 
-files.directory(
-    name="Create /etc/containers/systemd",
-    path="/etc/containers/systemd",
-    user="root",
-    group="root",
-    mode="755",
-    present=True,
-)
+    files.directory(
+        name="Create /etc/containers/systemd",
+        path="/etc/containers/systemd",
+        user="root",
+        group="root",
+        mode="755",
+        present=True,
+    )
 
-files.put(
-    name="Write halo.container quadlet",
-    src=io.BytesIO(quadlet.encode()),
-    dest="/etc/containers/systemd/halo.container",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write halo.container quadlet",
+        src=io.BytesIO(quadlet.encode()),
+        dest="/etc/containers/systemd/halo.container",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-server.shell(
-    name="Reload quadlet units",
-    commands=[
-        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true"
-    ],
-)
+    server.shell(
+        name="Reload quadlet units",
+        commands=[
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true"
+        ],
+    )
 
-systemd.service(
-    name="Start Halo",
-    service="halo",
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Start Halo",
+        service="halo",
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart Halo if quadlet changed",
-    commands=[
-        f"""
-        STAMP=/etc/containers/systemd/.halo-quadlet-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
-          systemctl restart halo
-          echo '{_quadlet_hash}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+    server.shell(
+        name="Restart Halo if quadlet changed",
+        commands=[
+            f"""
+            STAMP=/etc/containers/systemd/.halo-quadlet-stamp
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
+              systemctl restart halo
+              echo '{_quadlet_hash}' > "$STAMP"
+            fi
+            """,
+        ],
+    )
 
-server.shell(
-    name="Restart Halo if env changed",
-    commands=[
-        """
-        ESTAMP=/etc/secrets/.halo-env-stamp
-        ENV_HASH=$(sha256sum /etc/secrets/halo.env | cut -d' ' -f1)
-        if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
-          systemctl restart halo
-          echo "$ENV_HASH" > "$ESTAMP"
-        fi
-        """,
-    ],
-)
+    server.shell(
+        name="Restart Halo if env changed",
+        commands=[
+            """
+            ESTAMP=/etc/secrets/.halo-env-stamp
+            ENV_HASH=$(sha256sum /etc/secrets/halo.env | cut -d' ' -f1)
+            if [ "$(cat "$ESTAMP" 2>/dev/null)" != "$ENV_HASH" ]; then
+              systemctl restart halo
+              echo "$ENV_HASH" > "$ESTAMP"
+            fi
+            """,
+        ],
+    )
 
-server.shell(
-    name="Pull latest Halo image and restart if updated",
-    commands=[
-        f"""
-        NEW=$(podman pull -q {HALO["image"]})
-        CUR=$(podman inspect --format '{{{{.Image}}}}' halo 2>/dev/null || echo "")
-        if [ "$NEW" != "$CUR" ]; then
-          systemctl restart halo
-        fi
-        """,
-    ],
-)
+    server.shell(
+        name="Pull latest Halo image and restart if updated",
+        commands=[
+            f"""
+            NEW=$(podman pull -q {HALO["image"]})
+            CUR=$(podman inspect --format '{{{{.Image}}}}' halo 2>/dev/null || echo "")
+            if [ "$NEW" != "$CUR" ]; then
+              systemctl restart halo
+            fi
+            """,
+        ],
+    )
 
-# --- FMI PV forecast runner: oneshot service + timer ---------------------------
-# Runs ghcr.io/eetu/fmi-pv-forecast-runner, pipes JSON to Halo POST /api/pv/forecast.
+    # --- FMI PV forecast runner: oneshot service + timer ----------------------
+    # Runs ghcr.io/eetu/fmi-pv-forecast-runner, pipes JSON to Halo
+    # POST /api/pv/forecast. Independently optional — comment FMI_PV_FORECAST
+    # in group_data/all.py to keep Halo but drop the forecast feed.
+    if FMI_PV_FORECAST is None:
+        systemd.service(
+            name="Stop + disable fmi-pv-forecast.timer",
+            service="fmi-pv-forecast.timer",
+            running=False,
+            enabled=False,
+            daemon_reload=True,
+        )
+    else:
+        _pv_env_flags = " ".join(f"-e {k}={v}" for k, v in FMI_PV_FORECAST["env"].items())
 
-_pv_env_flags = " ".join(f"-e {k}={v}" for k, v in FMI_PV_FORECAST["env"].items())
-
-_pv_runner_script = f"""\
+        _pv_runner_script = f"""\
 #!/bin/bash
 set -euo pipefail
 # --network=host: default bridge net can't reach Pi-hole on host loopback for DNS.
@@ -152,7 +190,7 @@ podman run --rm --pull=newer --network=host {_pv_env_flags} \\
        --data-binary @- http://{HALO["host"]}:{HALO["port"]}/api/pv/forecast
 """
 
-_pv_service_unit = """\
+        _pv_service_unit = """\
 [Unit]
 Description=FMI PV forecast runner — fetch and POST to Halo
 After=network-online.target halo.service
@@ -163,7 +201,7 @@ Type=oneshot
 ExecStart=/usr/local/bin/fmi-pv-forecast-run.sh
 """
 
-_pv_timer_unit = f"""\
+        _pv_timer_unit = f"""\
 [Unit]
 Description=Periodic FMI PV forecast refresh
 
@@ -176,24 +214,24 @@ Persistent=true
 WantedBy=timers.target
 """
 
-for dest, content, mode in [
-    ("/usr/local/bin/fmi-pv-forecast-run.sh", _pv_runner_script, "755"),
-    ("/etc/systemd/system/fmi-pv-forecast.service", _pv_service_unit, "644"),
-    ("/etc/systemd/system/fmi-pv-forecast.timer", _pv_timer_unit, "644"),
-]:
-    files.put(
-        name=f"Write {dest.split('/')[-1]}",
-        src=io.BytesIO(content.encode()),
-        dest=dest,
-        user="root",
-        group="root",
-        mode=mode,
-    )
+        for dest, content, mode in [
+            ("/usr/local/bin/fmi-pv-forecast-run.sh", _pv_runner_script, "755"),
+            ("/etc/systemd/system/fmi-pv-forecast.service", _pv_service_unit, "644"),
+            ("/etc/systemd/system/fmi-pv-forecast.timer", _pv_timer_unit, "644"),
+        ]:
+            files.put(
+                name=f"Write {dest.split('/')[-1]}",
+                src=io.BytesIO(content.encode()),
+                dest=dest,
+                user="root",
+                group="root",
+                mode=mode,
+            )
 
-systemd.service(
-    name="Enable fmi-pv-forecast.timer",
-    service="fmi-pv-forecast.timer",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+        systemd.service(
+            name="Enable fmi-pv-forecast.timer",
+            service="fmi-pv-forecast.timer",
+            enabled=True,
+            running=True,
+            daemon_reload=True,
+        )

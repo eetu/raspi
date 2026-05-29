@@ -1,4 +1,15 @@
-"""Gatus: lightweight uptime monitoring + status page (Podman Quadlet)."""
+"""Gatus: lightweight uptime monitoring + status page (Podman Quadlet).
+
+Optional service — comment the GATUS dict in group_data/all.py to retire
+it; the task then stops + disables the `gatus` unit and leaves
+/var/lib/gatus on disk for rollback.
+
+Each monitored endpoint is gated on its service's dict, so retiring a
+service automatically drops its monitor (no alerting on a 404 Gatus
+caused itself). NTFY is the alert sink: when it's retired the alerting
+block and every per-endpoint `alerts:` ref are dropped, so Gatus keeps
+serving its status page without push notifications.
+"""
 
 import hashlib
 import io
@@ -8,75 +19,60 @@ from pyinfra.operations import files, server, systemd
 import vault as bw
 from group_data.all import (
     CIFS,
-    GATUS,
     KANIDM_OIDC_CLIENTS,
-    NAVIDROME,
     NETWORK,
-    NTFY,
     UNBOUND,
 )
 from tasks.util import optional, resolve_latest
 
-# Optional services — comment their dicts in group_data/all.py to retire
-# them and the matching gatus endpoint disappears with them.
-AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
-SHELF = optional("SHELF")
+GATUS = optional("GATUS")
 
-DOMAIN = NETWORK["domain"]
 
-_image = (
-    resolve_latest("TwiN/gatus", GATUS["image"]) if GATUS.get("resolve_latest") else GATUS["image"]
-)
+if GATUS is None:
+    # Retired: keep state on disk, stop + disable the unit.
+    systemd.service(
+        name="Stop + disable gatus (kept on disk for rollback)",
+        service="gatus",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    # Optional services — comment their dicts in group_data/all.py and the
+    # matching endpoint disappears with them.
+    AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
+    SHELF = optional("SHELF")
+    HALO = optional("HALO")
+    NTFY = optional("NTFY")
+    VAULTWARDEN = optional("VAULTWARDEN")
+    NAVIDROME = optional("NAVIDROME")
+    YARR = optional("YARR")
+    SYNCTHING = optional("SYNCTHING")
+    WGPORTAL = optional("WGPORTAL")
 
-# OIDC is optional — Gatus deploys without SSO if not in KANIDM_OIDC_CLIENTS
-# or until Kanidm has generated the client secret on a previous deploy.
-_oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
-_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+    DOMAIN = NETWORK["domain"]
 
-# NAS healthcheck host — the alias from HOSTS (e.g. "zenwifi"). The container
-# mounts the Pi's /etc/hosts read-only (see quadlet below), so it resolves the
-# alias via the same entry that tasks/host_discover.py keeps fresh.
-_nas_host = CIFS["audiobooks"]["share"].split("/")[2]
+    _image = (
+        resolve_latest("TwiN/gatus", GATUS["image"])
+        if GATUS.get("resolve_latest")
+        else GATUS["image"]
+    )
 
-_navidrome_url = (
-    f"http://{NAVIDROME['host']}:{NAVIDROME['port']}"
-    "/rest/getOpenSubsonicExtensions.view?f=json&c=gatus&v=1.16.1"
-)
+    # OIDC is optional — Gatus deploys without SSO if not in KANIDM_OIDC_CLIENTS
+    # or until Kanidm has generated the client secret on a previous deploy.
+    _oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
+    _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
-# Per-optional-service endpoint snippets. Each renders as an empty
-# string when its service dict is absent from group_data/all.py, so
-# retiring a service automatically drops its monitor + stops gatus
-# from alerting on a 404 it caused itself.
-_audiobookshelf_endpoint = (
-    f"""  - name: Audiobookshelf
-    url: "https://audiobooks.{DOMAIN}"
-    interval: 1m
-    conditions:
-      - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
+    # NAS healthcheck host — the alias from HOSTS (e.g. "zenwifi"). The container
+    # mounts the Pi's /etc/hosts read-only (see quadlet below), so it resolves the
+    # alias via the same entry that tasks/host_discover.py keeps fresh.
+    _nas_host = CIFS["audiobooks"]["share"].split("/")[2]
 
-"""
-    if AUDIOBOOKSHELF
-    else ""
-)
-_shelf_endpoint = (
-    f"""  - name: Shelf
-    # /ping is the unauthenticated liveness probe — exercises scribe-shelf
-    # without needing the bearer.
-    url: "http://{SHELF["host"]}:{SHELF["port"]}/ping"
-    interval: 1m
-    conditions:
-      - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-"""
-    if SHELF
-    else ""
-)
-
-_config_yaml = f"""\
+    # NTFY is the alert sink. When it's retired, drop the alerting block and
+    # every per-endpoint alert ref so Gatus stays a passive status page.
+    _alerts = "    alerts:\n      - type: ntfy\n" if NTFY else ""
+    _alerting = (
+        f"""\
 alerting:
   ntfy:
     url: "https://ntfy.{DOMAIN}"
@@ -87,61 +83,98 @@ alerting:
       success-threshold: 1
       send-on-resolved: true
 
-endpoints:
-  - name: Halo
+"""
+        if NTFY
+        else ""
+    )
+
+    # Per-optional-service endpoint snippets. Each renders as an empty string
+    # when its service dict is absent from group_data/all.py.
+    _halo_endpoint = (
+        f"""  - name: Halo
     url: "https://halo.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-  - name: Pi-hole
-    # Public unauth endpoint — bypasses oauth2-proxy via the pihole-monitor router.
-    url: "https://pihole.{DOMAIN}/api/info/version"
+{_alerts}
+"""
+        if HALO
+        else ""
+    )
+    _audiobookshelf_endpoint = (
+        f"""  - name: Audiobookshelf
+    url: "https://audiobooks.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-{_audiobookshelf_endpoint}{_shelf_endpoint}  - name: WireGuard Portal
+{_alerts}
+"""
+        if AUDIOBOOKSHELF
+        else ""
+    )
+    _shelf_endpoint = (
+        f"""  - name: Shelf
+    # /ping is the unauthenticated liveness probe — exercises scribe-shelf
+    # without needing the bearer.
+    url: "http://{SHELF["host"]}:{SHELF["port"]}/ping"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+{_alerts}
+"""
+        if SHELF
+        else ""
+    )
+    _wgportal_endpoint = (
+        f"""  - name: WireGuard Portal
     url: "https://vpn.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-  - name: ntfy
+{_alerts}
+"""
+        if WGPORTAL
+        else ""
+    )
+    _ntfy_endpoint = (
+        f"""  - name: ntfy
     url: "https://ntfy.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-  - name: Vaultwarden
+{_alerts}
+"""
+        if NTFY
+        else ""
+    )
+    _vaultwarden_endpoint = (
+        f"""  - name: Vaultwarden
     url: "https://vault.{DOMAIN}"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
-
-  - name: Navidrome
+{_alerts}
+"""
+        if VAULTWARDEN
+        else ""
+    )
+    _navidrome_endpoint = (
+        f"""  - name: Navidrome
     # Navidrome sits behind oauth2-proxy on the public hostname. Hit it on
     # loopback (gatus uses host networking) so we exercise the unauthenticated
     # OpenSubsonic endpoint without going through SSO.
-    url: "{_navidrome_url}"
+    url: "http://{NAVIDROME["host"]}:{NAVIDROME["port"]}/rest/getOpenSubsonicExtensions.view?f=json&c=gatus&v=1.16.1"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
       - "[BODY].subsonic-response.status == ok"
-    alerts:
-      - type: ntfy
-
-  - name: Yarr
+{_alerts}
+"""
+        if NAVIDROME
+        else ""
+    )
+    _yarr_endpoint = (
+        f"""  - name: Yarr
     # No public unauth endpoint — accept 200 (authenticated) or 401
     # (oauth2-proxy forwardAuth response). ignore-redirect stops Gatus from
     # following oauth2-proxy's 302 to the Kanidm login page.
@@ -151,19 +184,36 @@ endpoints:
       ignore-redirect: true
     conditions:
       - "[STATUS] == any(200, 302, 401)"
-    alerts:
-      - type: ntfy
-
-  - name: Syncthing
+{_alerts}
+"""
+        if YARR
+        else ""
+    )
+    _syncthing_endpoint = (
+        f"""  - name: Syncthing
     # /rest/noauth/health bypasses oauth2-proxy via the syncthing-monitor router.
     url: "https://syncthing.{DOMAIN}/rest/noauth/health"
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-    alerts:
-      - type: ntfy
+{_alerts}
+"""
+        if SYNCTHING
+        else ""
+    )
 
-  - name: Unbound DNS
+    _config_yaml = f"""\
+{_alerting}endpoints:
+  - name: Pi-hole
+    # Public unauth endpoint — bypasses oauth2-proxy via the pihole-monitor router.
+    url: "https://pihole.{DOMAIN}/api/info/version"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+{_alerts}
+{_halo_endpoint}{_audiobookshelf_endpoint}{_shelf_endpoint}{_wgportal_endpoint}{_ntfy_endpoint}{
+        _vaultwarden_endpoint
+    }{_navidrome_endpoint}{_yarr_endpoint}{_syncthing_endpoint}  - name: Unbound DNS
     url: "127.0.0.1:{UNBOUND["port"]}"
     interval: 2m
     dns:
@@ -171,9 +221,7 @@ endpoints:
       query-type: "A"
     conditions:
       - "len([BODY]) > 0"
-    alerts:
-      - type: ntfy
-
+{_alerts}
   - name: Pi-hole DNS
     url: "{NETWORK["lan_ip"]}:53"
     interval: 2m
@@ -182,37 +230,29 @@ endpoints:
       query-type: "A"
     conditions:
       - "len([BODY]) > 0"
-    alerts:
-      - type: ntfy
-
+{_alerts}
   - name: Pi
     url: "icmp://{NETWORK["lan_ip"]}"
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-    alerts:
-      - type: ntfy
-
+{_alerts}
   - name: NAS
     url: "icmp://{_nas_host}"
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-    alerts:
-      - type: ntfy
-
+{_alerts}
   - name: Internet
     url: "icmp://1.1.1.1"
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-    alerts:
-      - type: ntfy
-
+{_alerts}
 {
-    ""
-    if not _oidc_secret
-    else f'''security:
+        ""
+        if not _oidc_secret
+        else f'''security:
   oidc:
     issuer-url: "https://idm.{DOMAIN}/oauth2/openid/gatus"
     client-id: "gatus"
@@ -221,7 +261,7 @@ endpoints:
     scopes:
       - openid
 '''
-}storage:
+    }storage:
   type: sqlite
   path: /data/gatus.db
 
@@ -230,7 +270,7 @@ web:
   port: {GATUS["port"]}
 """
 
-quadlet = f"""\
+    quadlet = f"""\
 [Unit]
 Description=Gatus monitoring
 After=network-online.target
@@ -254,67 +294,67 @@ MemoryMax={GATUS["memory_max"]}
 WantedBy=multi-user.target
 """
 
-_quadlet_hash = hashlib.sha256((quadlet + _config_yaml).encode()).hexdigest()
+    _quadlet_hash = hashlib.sha256((quadlet + _config_yaml).encode()).hexdigest()
 
-files.directory(
-    name="Create /etc/gatus",
-    path="/etc/gatus",
-    user="root",
-    group="root",
-    mode="755",
-    present=True,
-)
+    files.directory(
+        name="Create /etc/gatus",
+        path="/etc/gatus",
+        user="root",
+        group="root",
+        mode="755",
+        present=True,
+    )
 
-files.directory(
-    name="Create /var/lib/gatus",
-    path="/var/lib/gatus",
-    user="root",
-    group="root",
-    mode="755",
-    present=True,
-)
+    files.directory(
+        name="Create /var/lib/gatus",
+        path="/var/lib/gatus",
+        user="root",
+        group="root",
+        mode="755",
+        present=True,
+    )
 
-files.put(
-    name="Write gatus config.yaml",
-    src=io.BytesIO(_config_yaml.encode()),
-    dest="/etc/gatus/config.yaml",
-    user="root",
-    group="root",
-    mode="600",
-)
+    files.put(
+        name="Write gatus config.yaml",
+        src=io.BytesIO(_config_yaml.encode()),
+        dest="/etc/gatus/config.yaml",
+        user="root",
+        group="root",
+        mode="600",
+    )
 
-files.put(
-    name="Write gatus.container quadlet",
-    src=io.BytesIO(quadlet.encode()),
-    dest="/etc/containers/systemd/gatus.container",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write gatus.container quadlet",
+        src=io.BytesIO(quadlet.encode()),
+        dest="/etc/containers/systemd/gatus.container",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-server.shell(
-    name="Reload quadlet units",
-    commands=[
-        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
-    ],
-)
+    server.shell(
+        name="Reload quadlet units",
+        commands=[
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
+        ],
+    )
 
-systemd.service(
-    name="Start gatus",
-    service="gatus",
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Start gatus",
+        service="gatus",
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart gatus if config changed",
-    commands=[
-        f"""
-        STAMP=/etc/gatus/.pyinfra-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
-          systemctl restart gatus
-          echo '{_quadlet_hash}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+    server.shell(
+        name="Restart gatus if config changed",
+        commands=[
+            f"""
+            STAMP=/etc/gatus/.pyinfra-stamp
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
+              systemctl restart gatus
+              echo '{_quadlet_hash}' > "$STAMP"
+            fi
+            """,
+        ],
+    )

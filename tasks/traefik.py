@@ -1,4 +1,16 @@
-"""Traefik: download binary, static + dynamic config, systemd service."""
+"""Traefik: download binary, static + dynamic config, systemd service.
+
+The dynamic config is generated from a route registry (ROUTES below).
+Required routes — pihole, idm (Kanidm), auth (oauth2-proxy) — are always
+emitted. Every other route is gated on an optional() service dict: comment
+the dict in group_data/all.py and its router + service disappear from the
+generated YAML, so a retired service stops being reverse-proxied without
+any edit here.
+
+The wildcard TLS cert (`*.{domain}`) is declared on the idm router because
+idm/Kanidm is always present — that keeps a single DNS-01 wildcard covering
+every subdomain regardless of which optional services are deployed.
+"""
 
 import hashlib
 import io
@@ -7,34 +19,36 @@ from pyinfra.operations import files, server, systemd
 
 import vault as bw
 from group_data.all import (
-    AI,
-    BESZEL,
-    CHAT,
-    COMFY,
-    GATUS,
-    HALO,
     KANIDM,
     KANIDM_OIDC_CLIENTS,
-    MCP_CHAT,
-    MEMOS,
-    NAVIDROME,
     NETWORK,
-    NTFY,
     OAUTH2_PROXY,
     PIHOLE,
-    SCRIBE,
-    SHELF,
-    STT,
-    SYNCTHING,
     TRAEFIK,
-    TTS,
-    VAULTWARDEN,
-    WGPORTAL,
-    YARR,
 )
 from tasks.util import optional, restart_if_changed
 
+# Optional service dicts — None when retired (commented in group_data/all.py).
+# A route whose dict is None is skipped by the generator below.
+AI = optional("AI")
 AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
+BESZEL = optional("BESZEL")
+CHAT = optional("CHAT")
+COMFY = optional("COMFY")
+GATUS = optional("GATUS")
+HALO = optional("HALO")
+MCP_CHAT = optional("MCP_CHAT")
+MEMOS = optional("MEMOS")
+NAVIDROME = optional("NAVIDROME")
+NTFY = optional("NTFY")
+SCRIBE = optional("SCRIBE")
+SHELF = optional("SHELF")
+STT = optional("STT")
+SYNCTHING = optional("SYNCTHING")
+TTS = optional("TTS")
+VAULTWARDEN = optional("VAULTWARDEN")
+WGPORTAL = optional("WGPORTAL")
+YARR = optional("YARR")
 
 VERSION = TRAEFIK["version"]
 BINARY_URL = (
@@ -43,48 +57,78 @@ BINARY_URL = (
 )
 DOMAIN = NETWORK["domain"]
 
-# Audiobookshelf router + service YAML chunks — empty when ABS is
-# retired (its dict commented out in group_data/all.py), so the
-# dynamic config drops the audiobooks route entirely.
-_audiobooks_router = (
-    f"""
-    audiobooks:
-      rule: "Host(`audiobooks.{DOMAIN}`)"
-      service: audiobooks
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-"""
-    if AUDIOBOOKSHELF
-    else ""
-)
-_audiobooks_service = (
-    f"""
-    audiobooks:
-      loadBalancer:
-        servers:
-          - url: "http://{AUDIOBOOKSHELF["host"]}:{AUDIOBOOKSHELF["port"]}"
-"""
-    if AUDIOBOOKSHELF
-    else ""
-)
-
 # Whether oauth2-proxy is wired up for this deployment. Used to gate the
 # music router — when oauth2-proxy is not configured, Navidrome is exposed
 # directly and clients use its native username/password auth instead of IAP.
 _oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
 _oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
 
-# Hosts gated by oauth2-proxy. Each gets a per-host errors middleware whose
-# `rd` parameter pins the post-auth redirect target — Traefik's errors
-# middleware only substitutes {status} in `query`, and X-Forwarded-Uri is not
-# propagated to the auth backend, so oauth2-proxy can't reconstruct the
-# origin URL on its own.
-OAUTH2_GATED_HOSTS = ("pihole", "rss", "music", "syncthing")
-if not _oauth2_active:
-    OAUTH2_GATED_HOSTS = tuple(h for h in OAUTH2_GATED_HOSTS if h != "music")
+# Hosts fronted by an oauth2-proxy forward-auth chain. Each gets a per-host
+# errors middleware whose `rd` pins the post-auth redirect target. pihole is
+# required so it's always present; the rest only appear when their service is
+# deployed. music additionally requires oauth2-proxy to be active (otherwise
+# Navidrome is exposed directly with its own auth).
+_gated_hosts = ["pihole"]
+if YARR:
+    _gated_hosts.append("rss")
+if SYNCTHING:
+    _gated_hosts.append("syncthing")
+if NAVIDROME and _oauth2_active:
+    _gated_hosts.append("music")
 
-_music_middlewares = "      middlewares: [oauth2-chain-music]\n" if _oauth2_active else ""
+# Optional route registry: (router/service name, gating dict, default subdomain).
+# The subdomain prefix comes from the dict's own `url_prefix` when set
+# (scribe/shelf/ai/comfy/stt/tts/mcp-chat), otherwise the default here (for
+# services whose public name is owned by their Kanidm OIDC client instead, e.g.
+# vault/vpn/status/metrics/memo). Aliases are read from the dict's `aliases`.
+ROUTES = [
+    ("halo", HALO, "halo"),
+    ("audiobooks", AUDIOBOOKSHELF, "audiobooks"),
+    ("vpn", WGPORTAL, "vpn"),
+    ("ntfy", NTFY, "ntfy"),
+    ("status", GATUS, "status"),
+    ("vault", VAULTWARDEN, "vault"),
+    ("rss", YARR, "rss"),
+    ("music", NAVIDROME, "music"),
+    ("memo", MEMOS, "memo"),
+    ("chat", CHAT, "chat"),
+    ("scribe", SCRIBE, "scribe"),
+    ("shelf", SHELF, "shelf"),
+    ("syncthing", SYNCTHING, "syncthing"),
+    ("metrics", BESZEL, "metrics"),
+    ("ai", AI, "ai"),
+    ("comfy", COMFY, "comfy"),
+    ("stt", STT, "stt"),
+    ("tts", TTS, "tts"),
+    ("mcp-chat", MCP_CHAT, "mcp-chat"),
+]
+
+
+def _router_block(name, prefix, aliases=(), middlewares=()):
+    hosts = " || ".join(f"Host(`{p}.{DOMAIN}`)" for p in (prefix, *aliases))
+    lines = [
+        f"    {name}:",
+        f'      rule: "{hosts}"',
+        f"      service: {name}",
+        "      entryPoints: [websecure]",
+    ]
+    if middlewares:
+        lines.append(f"      middlewares: [{', '.join(middlewares)}]")
+    lines += ["      tls:", "        certResolver: cloudflare"]
+    return "\n".join(lines)
+
+
+def _service_block(name, url, transport=None):
+    lines = [
+        f"    {name}:",
+        "      loadBalancer:",
+        "        servers:",
+        f'          - url: "{url}"',
+    ]
+    if transport:
+        lines.append(f"        serversTransport: {transport}")
+    return "\n".join(lines)
+
 
 # --- Binary ---
 
@@ -125,20 +169,6 @@ server.shell(
         chown traefik:traefik /etc/traefik/acme.json
         """,
     ],
-)
-
-_oauth2_per_host_middlewares = "".join(
-    f"""\
-    oauth2-errors-{h}:
-      errors:
-        status: ["401"]
-        service: auth
-        query: "/oauth2/sign_in?rd=https%3A%2F%2F{h}.{DOMAIN}%2F"
-    oauth2-chain-{h}:
-      chain:
-        middlewares: [oauth2-errors-{h}, oauth2-proxy]
-"""
-    for h in OAUTH2_GATED_HOSTS
 )
 
 # --- Static config ---
@@ -191,21 +221,10 @@ files.put(
     mode="644",
 )
 
-# --- Dynamic config ---
+# --- Dynamic config (generated from ROUTES) ---
 
-dynamic_yaml = f"""\
-http:
-  routers:
-    halo:
-      rule: "Host(`halo.{DOMAIN}`) || Host(`hcc.{DOMAIN}`)"
-      service: halo
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-        domains:
-          - main: "{DOMAIN}"
-            sans: ["*.{DOMAIN}"]
-
+# Required routers — always emitted.
+_required_routers = f"""\
     # Unauthenticated Pi-hole API path used by Gatus uptime checks.
     pihole-monitor:
       rule: "Host(`pihole.{DOMAIN}`) && Path(`/api/info/version`)"
@@ -231,177 +250,71 @@ http:
       tls:
         certResolver: cloudflare
 
-{_audiobooks_router}
-    vpn:
-      rule: "Host(`vpn.{DOMAIN}`)"
-      service: vpn
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    ntfy:
-      rule: "Host(`ntfy.{DOMAIN}`)"
-      service: ntfy
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    status:
-      rule: "Host(`status.{DOMAIN}`)"
-      service: status
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    vault:
-      rule: "Host(`vault.{DOMAIN}`)"
-      service: vault
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    rss:
-      rule: "Host(`rss.{DOMAIN}`)"
-      service: rss
-      entryPoints: [websecure]
-      middlewares: [oauth2-chain-rss]
-      tls:
-        certResolver: cloudflare
-
-    music:
-      rule: "Host(`music.{DOMAIN}`)"
-      service: music
-      entryPoints: [websecure]
-{_music_middlewares.rstrip()}
-      tls:
-        certResolver: cloudflare
-
-    # No oauth2-chain — Memos handles its own auth (Kanidm OIDC + local user).
-    memo:
-      rule: "Host(`memo.{DOMAIN}`)"
-      service: memo
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    # No oauth2-chain — Chat handles its own auth (Kanidm OIDC).
-    chat:
-      rule: "Host(`chat.{DOMAIN}`)"
-      service: chat
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    # Scribe — same self-auth pattern as Chat (Kanidm OIDC).
-    scribe:
-      rule: "Host(`{SCRIBE["url_prefix"]}.{DOMAIN}`)"
-      service: scribe
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    # Shelf — read-only ABS-compat sidecar. Bearer-key auth at the
-    # application layer, so Traefik just terminates TLS and forwards.
-    # Listen This / other ABS clients connect here directly.
-    shelf:
-      rule: "Host(`{SHELF["url_prefix"]}.{DOMAIN}`)"
-      service: shelf
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    # Unauthenticated Syncthing health endpoints used by Gatus uptime checks.
-    syncthing-monitor:
-      rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
-      service: syncthing
-      priority: 100
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-    syncthing:
-      rule: "Host(`syncthing.{DOMAIN}`)"
-      service: syncthing
-      entryPoints: [websecure]
-      middlewares: [oauth2-chain-syncthing]
-      tls:
-        certResolver: cloudflare
-
-    metrics:
-      rule: "Host(`metrics.{DOMAIN}`)"
-      service: metrics
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
+    # idm/Kanidm is always present, so the wildcard cert declaration lives here
+    # — every other subdomain is served the same `*.{DOMAIN}` cert.
     idm:
       rule: "Host(`idm.{DOMAIN}`)"
       service: idm
       entryPoints: [websecure]
       tls:
         certResolver: cloudflare
+        domains:
+          - main: "{DOMAIN}"
+            sans: ["*.{DOMAIN}"]
 
     auth:
       rule: "Host(`auth.{DOMAIN}`)"
       service: auth
       entryPoints: [websecure]
       tls:
-        certResolver: cloudflare
+        certResolver: cloudflare"""
 
-    # Off-Pi LLM endpoint — proxies to the Mac mini's Caddy → Ollama chain.
-    # Auth (if enabled) is enforced upstream on the Mini, not here.
-    ai:
-      rule: "Host(`{AI["url_prefix"]}.{DOMAIN}`)"
-      service: ai
+# Unauthenticated Syncthing health endpoints used by Gatus uptime checks —
+# only meaningful when Syncthing is deployed.
+_syncthing_monitor = f"""\
+    syncthing-monitor:
+      rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
+      service: syncthing
+      priority: 100
       entryPoints: [websecure]
       tls:
-        certResolver: cloudflare
+        certResolver: cloudflare"""
 
-    # Off-Pi ComfyUI endpoint — proxies to the Mac mini's Caddy → ComfyUI
-    # chain (port 8188 on the Mini). Auth (if enabled) is enforced upstream
-    # on the Mini, not here. ComfyUI uses a WebSocket at /ws for progress
-    # events — Traefik passes WS upgrades through this same router with no
-    # extra middleware. Image generation is async (POST /prompt returns
-    # immediately, results stream over WS), so HTTP request timeouts are
-    # not a concern despite 30-50 s generation times.
-    comfy:
-      rule: "Host(`{COMFY["url_prefix"]}.{DOMAIN}`)"
-      service: comfy
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
+_routers = [_required_routers]
+_services = [
+    _service_block("pihole", f"http://{PIHOLE['host']}:{PIHOLE['web_port']}"),
+    _service_block(
+        "idm", f"https://{KANIDM['host']}:{KANIDM['port']}", transport="kanidmTransport"
+    ),
+    _service_block("auth", f"http://{OAUTH2_PROXY['host']}:{OAUTH2_PROXY['port']}"),
+]
 
-    # Off-Pi speech-to-text endpoint — proxies to the Mac mini's Caddy →
-    # whisper.cpp HTTP server (port 8190). Auth (if enabled) is enforced
-    # upstream on the Mini, not here.
-    stt:
-      rule: "Host(`{STT["url_prefix"]}.{DOMAIN}`)"
-      service: stt
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
+for _name, _cfg, _default_prefix in ROUTES:
+    if _cfg is None:
+        continue
+    _prefix = _cfg.get("url_prefix") or _default_prefix
+    _aliases = _cfg.get("aliases", ())
+    _mws = [f"oauth2-chain-{_name}"] if _name in _gated_hosts else []
+    if _name == "syncthing":
+        _routers.append(_syncthing_monitor)
+    _routers.append(_router_block(_name, _prefix, _aliases, _mws))
+    _services.append(_service_block(_name, f"http://{_cfg['host']}:{_cfg['port']}"))
 
-    # Off-Pi text-to-speech endpoint — proxies to the Mac mini's Caddy →
-    # Piper TTS (port 8192). Auth (if enabled) is enforced upstream on the
-    # Mini, not here.
-    tts:
-      rule: "Host(`{TTS["url_prefix"]}.{DOMAIN}`)"
-      service: tts
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
+# Per-host oauth2 chains, one set per gated host actually present.
+_oauth2_per_host = "\n".join(
+    f"""\
+    oauth2-errors-{h}:
+      errors:
+        status: ["401"]
+        service: auth
+        query: "/oauth2/sign_in?rd=https%3A%2F%2F{h}.{DOMAIN}%2F"
+    oauth2-chain-{h}:
+      chain:
+        middlewares: [oauth2-errors-{h}, oauth2-proxy]"""
+    for h in _gated_hosts
+)
 
-    # chat-mcp: streamable-HTTP MCP bridge for chat's img2img / inpaint.
-    # LAN/VPN-only — `mcp-chat` lives in INTERNAL_SUBDOMAINS, so there's no
-    # Cloudflare A record. Wildcard cert covers it regardless.
-    mcp-chat:
-      rule: "Host(`{MCP_CHAT["url_prefix"]}.{DOMAIN}`)"
-      service: mcp-chat
-      entryPoints: [websecure]
-      tls:
-        certResolver: cloudflare
-
-  middlewares:
+_middlewares = f"""\
     compress:
       compress: {{}}
     pihole-redirect:
@@ -417,122 +330,23 @@ http:
           - X-Auth-Request-User
           - X-Auth-Request-Email
           - Set-Cookie
-{_oauth2_per_host_middlewares.rstrip()}
+{_oauth2_per_host}"""
 
-  services:
-    halo:
-      loadBalancer:
-        servers:
-          - url: "http://{HALO["host"]}:{HALO["port"]}"
-
-    pihole:
-      loadBalancer:
-        servers:
-          - url: "http://{PIHOLE["host"]}:{PIHOLE["web_port"]}"
-
-{_audiobooks_service}
-    vpn:
-      loadBalancer:
-        servers:
-          - url: "http://{WGPORTAL["host"]}:{WGPORTAL["port"]}"
-
-    ntfy:
-      loadBalancer:
-        servers:
-          - url: "http://{NTFY["host"]}:{NTFY["port"]}"
-
-    status:
-      loadBalancer:
-        servers:
-          - url: "http://{GATUS["host"]}:{GATUS["port"]}"
-
-    vault:
-      loadBalancer:
-        servers:
-          - url: "http://{VAULTWARDEN["host"]}:{VAULTWARDEN["port"]}"
-
-    rss:
-      loadBalancer:
-        servers:
-          - url: "http://{YARR["host"]}:{YARR["port"]}"
-
-    music:
-      loadBalancer:
-        servers:
-          - url: "http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
-
-    memo:
-      loadBalancer:
-        servers:
-          - url: "http://{MEMOS["host"]}:{MEMOS["port"]}"
-
-    chat:
-      loadBalancer:
-        servers:
-          - url: "http://{CHAT["host"]}:{CHAT["port"]}"
-
-    scribe:
-      loadBalancer:
-        servers:
-          - url: "http://{SCRIBE["host"]}:{SCRIBE["port"]}"
-
-    shelf:
-      loadBalancer:
-        servers:
-          - url: "http://{SHELF["host"]}:{SHELF["port"]}"
-
-    syncthing:
-      loadBalancer:
-        servers:
-          - url: "http://{SYNCTHING["host"]}:{SYNCTHING["port"]}"
-
-    metrics:
-      loadBalancer:
-        servers:
-          - url: "http://{BESZEL["host"]}:{BESZEL["port"]}"
-
-    idm:
-      loadBalancer:
-        servers:
-          - url: "https://{KANIDM["host"]}:{KANIDM["port"]}"
-        serversTransport: kanidmTransport
-
-    auth:
-      loadBalancer:
-        servers:
-          - url: "http://{OAUTH2_PROXY["host"]}:{OAUTH2_PROXY["port"]}"
-
-    ai:
-      loadBalancer:
-        servers:
-          - url: "http://{AI["host"]}:{AI["port"]}"
-
-    comfy:
-      loadBalancer:
-        servers:
-          - url: "http://{COMFY["host"]}:{COMFY["port"]}"
-
-    stt:
-      loadBalancer:
-        servers:
-          - url: "http://{STT["host"]}:{STT["port"]}"
-
-    tts:
-      loadBalancer:
-        servers:
-          - url: "http://{TTS["host"]}:{TTS["port"]}"
-
-    mcp-chat:
-      loadBalancer:
-        servers:
-          - url: "http://{MCP_CHAT["host"]}:{MCP_CHAT["port"]}"
-
-  serversTransports:
-    kanidmTransport:
-      # Kanidm serves the ACME wildcard cert (Let's Encrypt) — trusted by system CAs.
-      # serverName overrides SNI so hostname verification passes on loopback.
-      serverName: "idm.{DOMAIN}"
-"""
+dynamic_yaml = (
+    "http:\n"
+    "  routers:\n"
+    + "\n\n".join(_routers)
+    + "\n\n  middlewares:\n"
+    + _middlewares
+    + "\n\n  services:\n"
+    + "\n\n".join(_services)
+    + "\n\n"
+    + "  serversTransports:\n"
+    + "    kanidmTransport:\n"
+    + "      # Kanidm serves the ACME wildcard cert (Let's Encrypt) — trusted by system CAs.\n"
+    + "      # serverName overrides SNI so hostname verification passes on loopback.\n"
+    + f'      serverName: "idm.{DOMAIN}"\n'
+)
 
 files.put(
     name="Write Traefik dynamic config",
@@ -585,6 +399,9 @@ files.put(
     mode="644",
 )
 
+# Dynamic config is hot-reloaded by Traefik's file provider (watch: true), so
+# it's deliberately excluded from the restart fingerprint — only static config
+# + the unit force a restart.
 _static_hash = hashlib.sha256((static_yaml + service_unit).encode()).hexdigest()
 
 systemd.service(

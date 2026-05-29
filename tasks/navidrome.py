@@ -1,4 +1,11 @@
-"""Navidrome: Podman Quadlet container unit for music streaming."""
+"""Navidrome: Podman Quadlet container unit for music streaming.
+
+Optional service — comment the NAVIDROME dict in group_data/all.py to
+retire it. The task then drops into a cleanup branch that stops +
+disables the systemd unit and leaves /var/lib/navidrome (and the
+`navidrome` BW item) untouched, so re-adding the block + redeploying
+restores the service.
+"""
 
 import hashlib
 import io
@@ -7,27 +14,41 @@ import json
 from pyinfra.operations import files, server, systemd
 
 import vault as bw
-from group_data.all import KANIDM_OIDC_CLIENTS, NAVIDROME
-from tasks.util import resolve_latest
+from group_data.all import KANIDM_OIDC_CLIENTS
+from tasks.util import optional, resolve_latest
 
-_image = (
-    resolve_latest("deluan/navidrome", NAVIDROME["image"])
-    if NAVIDROME.get("resolve_latest")
-    else NAVIDROME["image"]
-)
+NAVIDROME = optional("NAVIDROME")
 
-# Two auth modes:
-#  - oauth2-proxy active → the music router uses oauth2-chain-music; clients
-#    authenticate via Kanidm SSO (Flo's "Login with IAP" or any browser-based
-#    Subsonic client) and Navidrome auto-creates users from the trusted
-#    X-Auth-Request-User header on loopback. No admin-user bootstrap needed.
-#  - oauth2-proxy not active → the music router exposes Navidrome directly;
-#    we bootstrap an admin user from the `navidrome` Bitwarden item so plain
-#    Subsonic clients can log in with username/password.
-_oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-_oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
 
-quadlet = f"""\
+if NAVIDROME is None:
+    # Retired: keep state on disk, just stop + disable the unit so the
+    # container exits and the port is freed.
+    systemd.service(
+        name="Stop + disable navidrome (kept on disk for rollback)",
+        service="navidrome",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    _image = (
+        resolve_latest("deluan/navidrome", NAVIDROME["image"])
+        if NAVIDROME.get("resolve_latest")
+        else NAVIDROME["image"]
+    )
+
+    # Two auth modes:
+    #  - oauth2-proxy active → the music router uses oauth2-chain-music; clients
+    #    authenticate via Kanidm SSO (Flo's "Login with IAP" or any browser-based
+    #    Subsonic client) and Navidrome auto-creates users from the trusted
+    #    X-Auth-Request-User header on loopback. No admin-user bootstrap needed.
+    #  - oauth2-proxy not active → the music router exposes Navidrome directly;
+    #    we bootstrap an admin user from the `navidrome` Bitwarden item so plain
+    #    Subsonic clients can log in with username/password.
+    _oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
+    _oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
+
+    quadlet = f"""\
 [Unit]
 Description=Navidrome
 After=network-online.target mnt-music.automount
@@ -71,74 +92,74 @@ MemoryMax=256M
 WantedBy=multi-user.target
 """
 
-_quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
+    _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
 
-files.directory(
-    name="Create navidrome data dir",
-    path="/var/lib/navidrome",
-    user="root",
-    group="root",
-    mode="755",
-    present=True,
-)
+    files.directory(
+        name="Create navidrome data dir",
+        path="/var/lib/navidrome",
+        user="root",
+        group="root",
+        mode="755",
+        present=True,
+    )
 
-files.put(
-    name="Write navidrome.container quadlet",
-    src=io.BytesIO(quadlet.encode()),
-    dest="/etc/containers/systemd/navidrome.container",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write navidrome.container quadlet",
+        src=io.BytesIO(quadlet.encode()),
+        dest="/etc/containers/systemd/navidrome.container",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-server.shell(
-    name="Reload quadlet units",
-    commands=[
-        "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
-    ],
-)
-
-systemd.service(
-    name="Start Navidrome",
-    service="navidrome",
-    running=True,
-    daemon_reload=True,
-)
-
-if not _oauth2_active:
-    # No SSO — seed the admin user from Bitwarden so Subsonic clients can
-    # log in. /auth/createAdmin is a no-op once a user exists, so re-running
-    # the deploy is safe; rotating the BW password however does NOT propagate
-    # to an existing admin user — that requires a manual reset.
-    _creds = bw.navidrome_creds()
-    _nd_password_json = json.dumps(_creds["password"])
     server.shell(
-        name="Initialize Navidrome admin user",
+        name="Reload quadlet units",
         commands=[
-            f"""
-            ND_URL="http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
-            for i in $(seq 1 15); do
-              STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' "$ND_URL/ping" 2>/dev/null || true)
-              if [ "$STATUS" = "200" ]; then break; fi
-              sleep 3
-            done
-            curl -sf -X POST "$ND_URL/auth/createAdmin" \
-              -H "Content-Type: application/json" \
-              -d '{{"username":"{_creds["username"]}","password":{_nd_password_json}}}' \
-              2>/dev/null || true
-            """,
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
         ],
     )
 
-server.shell(
-    name="Restart Navidrome if quadlet changed",
-    commands=[
-        f"""
-        STAMP=/etc/containers/systemd/.navidrome-quadlet-stamp
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
-          systemctl restart navidrome
-          echo '{_quadlet_hash}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+    systemd.service(
+        name="Start Navidrome",
+        service="navidrome",
+        running=True,
+        daemon_reload=True,
+    )
+
+    if not _oauth2_active:
+        # No SSO — seed the admin user from Bitwarden so Subsonic clients can
+        # log in. /auth/createAdmin is a no-op once a user exists, so re-running
+        # the deploy is safe; rotating the BW password however does NOT propagate
+        # to an existing admin user — that requires a manual reset.
+        _creds = bw.navidrome_creds()
+        _nd_password_json = json.dumps(_creds["password"])
+        server.shell(
+            name="Initialize Navidrome admin user",
+            commands=[
+                f"""
+                ND_URL="http://{NAVIDROME["host"]}:{NAVIDROME["port"]}"
+                for i in $(seq 1 15); do
+                  STATUS=$(curl -s -o /dev/null -w '%{{http_code}}' "$ND_URL/ping" 2>/dev/null || true)
+                  if [ "$STATUS" = "200" ]; then break; fi
+                  sleep 3
+                done
+                curl -sf -X POST "$ND_URL/auth/createAdmin" \
+                  -H "Content-Type: application/json" \
+                  -d '{{"username":"{_creds["username"]}","password":{_nd_password_json}}}' \
+                  2>/dev/null || true
+                """,
+            ],
+        )
+
+    server.shell(
+        name="Restart Navidrome if quadlet changed",
+        commands=[
+            f"""
+            STAMP=/etc/containers/systemd/.navidrome-quadlet-stamp
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{_quadlet_hash}" ]; then
+              systemctl restart navidrome
+              echo '{_quadlet_hash}' > "$STAMP"
+            fi
+            """,
+        ],
+    )

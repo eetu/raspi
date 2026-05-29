@@ -3,6 +3,11 @@
 Auth is delegated to oauth2-proxy via Traefik forward-auth — yarr's own basic
 auth is intentionally disabled. The bind is 127.0.0.1, so Traefik is the only
 ingress.
+
+Optional service — comment the YARR dict in group_data/all.py to retire it.
+The task then drops into a cleanup branch that stops + disables the systemd
+unit and leaves /usr/local/bin/yarr and /var/lib/yarr untouched, so
+re-adding the block + redeploying restores the service.
 """
 
 import hashlib
@@ -10,44 +15,58 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import YARR
-from tasks.util import restart_if_changed
+from tasks.util import optional, restart_if_changed
 
-VERSION = YARR["version"]
-BINARY_URL = f"https://github.com/nkanaev/yarr/releases/download/{VERSION}/yarr_linux_arm64.zip"
+YARR = optional("YARR")
 
-# --- Binary ---
 
-server.shell(
-    name=f"Install yarr {VERSION}",
-    commands=[
-        f"""
-        STAMP=/usr/local/bin/.yarr-version
-        if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
-          curl -fsSL "{BINARY_URL}" -o /tmp/yarr.zip
-          unzip -o /tmp/yarr.zip yarr -d /usr/local/bin/
-          chmod +x /usr/local/bin/yarr
-          rm /tmp/yarr.zip
-          echo '{VERSION}' > "$STAMP"
-        fi
-        """,
-    ],
-)
+if YARR is None:
+    # Retired: keep binary + data on disk, just stop + disable the unit so
+    # the port is freed. Re-adding the YARR block + redeploying restores
+    # the service.
+    systemd.service(
+        name="Stop + disable yarr (kept on disk for rollback)",
+        service="yarr",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+else:
+    VERSION = YARR["version"]
+    BINARY_URL = f"https://github.com/nkanaev/yarr/releases/download/{VERSION}/yarr_linux_arm64.zip"
 
-# --- Data directory ---
+    # --- Binary ---
 
-files.directory(
-    name="Create /var/lib/yarr",
-    path="/var/lib/yarr",
-    user="root",
-    group="root",
-    mode="700",
-    present=True,
-)
+    server.shell(
+        name=f"Install yarr {VERSION}",
+        commands=[
+            f"""
+            STAMP=/usr/local/bin/.yarr-version
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "{VERSION}" ]; then
+              curl -fsSL "{BINARY_URL}" -o /tmp/yarr.zip
+              unzip -o /tmp/yarr.zip yarr -d /usr/local/bin/
+              chmod +x /usr/local/bin/yarr
+              rm /tmp/yarr.zip
+              echo '{VERSION}' > "$STAMP"
+            fi
+            """,
+        ],
+    )
 
-# --- systemd service ---
+    # --- Data directory ---
 
-service_unit = f"""\
+    files.directory(
+        name="Create /var/lib/yarr",
+        path="/var/lib/yarr",
+        user="root",
+        group="root",
+        mode="700",
+        present=True,
+    )
+
+    # --- systemd service ---
+
+    service_unit = f"""\
 [Unit]
 Description=Yarr RSS reader
 After=network-online.target
@@ -75,32 +94,32 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 """
 
-files.put(
-    name="Write yarr systemd unit",
-    src=io.BytesIO(service_unit.encode()),
-    dest="/etc/systemd/system/yarr.service",
-    user="root",
-    group="root",
-    mode="644",
-)
+    files.put(
+        name="Write yarr systemd unit",
+        src=io.BytesIO(service_unit.encode()),
+        dest="/etc/systemd/system/yarr.service",
+        user="root",
+        group="root",
+        mode="644",
+    )
 
-_unit_hash = hashlib.sha256(service_unit.encode()).hexdigest()
+    _unit_hash = hashlib.sha256(service_unit.encode()).hexdigest()
 
-systemd.service(
-    name="Enable yarr",
-    service="yarr",
-    enabled=True,
-    running=True,
-    daemon_reload=True,
-)
+    systemd.service(
+        name="Enable yarr",
+        service="yarr",
+        enabled=True,
+        running=True,
+        daemon_reload=True,
+    )
 
-server.shell(
-    name="Restart yarr if unit changed",
-    commands=[restart_if_changed("yarr", _unit_hash)],
-)
+    server.shell(
+        name="Restart yarr if unit changed",
+        commands=[restart_if_changed("yarr", _unit_hash)],
+    )
 
-# Clean up the legacy yarr.env that previously held basic-auth credentials.
-server.shell(
-    name="Remove legacy yarr.env",
-    commands=["rm -f /etc/secrets/yarr.env"],
-)
+    # Clean up the legacy yarr.env that previously held basic-auth credentials.
+    server.shell(
+        name="Remove legacy yarr.env",
+        commands=["rm -f /etc/secrets/yarr.env"],
+    )
