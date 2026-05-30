@@ -48,6 +48,13 @@ else:
         "SHIM_PORT": str(SHIM["port"]),
         "SHIM_DATA_DIR": "/data",
         "SHIM_RELOAD": "0",
+        # glibc spawns up to 8×cores malloc arenas for a threaded process;
+        # uvicorn + anyio's threadpool each grab one and hoard freed memory
+        # (often 30–50% of RSS on ARM). Cap at 2. Must live in [Container] so
+        # it's in the container process env before libc init reads it — a
+        # [Service] Environment= would only reach the podman wrapper, and the
+        # secrets dotenv is loaded too late.
+        "MALLOC_ARENA_MAX": "2",
     }
     _env_lines = "\n".join(_env_line(k, v) for k, v in {**_base_env, **SHIM.get("env", {})}.items())
 
@@ -71,6 +78,8 @@ Pull=newer
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
+MemoryAccounting=yes
+MemoryHigh=80M
 MemoryMax=128M
 MemorySwapMax=64M
 
