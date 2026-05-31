@@ -41,6 +41,7 @@ MCP_CHAT = optional("MCP_CHAT")
 MEMOS = optional("MEMOS")
 NAVIDROME = optional("NAVIDROME")
 NTFY = optional("NTFY")
+RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
 SCRIBE = optional("SCRIBE")
 SHELF = optional("SHELF")
 STT = optional("STT")
@@ -75,6 +76,15 @@ if SYNCTHING:
     _gated_hosts.append("syncthing")
 if NAVIDROME and _oauth2_active:
     _gated_hosts.append("music")
+# Gatus no longer runs its own OIDC (tasks/gatus.py) — its server is open on
+# loopback for raspi-dashboard to fan in, so the human-facing route must be
+# gated here. Requires oauth2-proxy; without it gatus would be exposed directly.
+if GATUS and _oauth2_active:
+    _gated_hosts.append("gatus")
+# raspi-dashboard has no own login — it relies entirely on oauth2-proxy at the
+# edge. Always gate it when oauth2-proxy is active.
+if RASPI_DASHBOARD and _oauth2_active:
+    _gated_hosts.append("dashboard")
 
 # Optional route registry: (router/service name, gating dict, default subdomain).
 # The subdomain prefix comes from the dict's own `url_prefix` when set
@@ -96,6 +106,7 @@ ROUTES = [
     ("shelf", SHELF, "shelf"),
     ("syncthing", SYNCTHING, "syncthing"),
     ("beszel", BESZEL, "beszel"),
+    ("dashboard", RASPI_DASHBOARD, "dashboard"),
     ("ai", AI, "ai"),
     ("comfy", COMFY, "comfy"),
     ("stt", STT, "stt"),

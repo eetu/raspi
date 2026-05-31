@@ -29,6 +29,7 @@ RESTRICTED = [
     "navidrome",
     "ntfy",
     "oauth2-proxy",
+    "raspi-dashboard",
     "scribe",
     # Shelf intentionally NOT restricted: /api/items/{id}/cover proxies
     # to the Audible CDN (m.media-amazon.com), which lives outside the

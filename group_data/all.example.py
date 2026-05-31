@@ -346,6 +346,11 @@ GATUS = {
 
 TRIVY = {
     "version": "0.69.3",
+    # Caps the CVE-scan spike so an image scan can't starve the Pi. The scan is
+    # a oneshot — if it exceeds this it's OOM-killed without touching other
+    # services. Kept here (not in raspi-dashboard's own 96M budget) because the
+    # scan runs in trivy's unit, triggered out-of-band.
+    "memory_max": "768M",
 }
 
 # Encrypted incremental backups of service state to the NAS via restic.
@@ -444,6 +449,32 @@ BESZEL = {
     "port": 8091,  # hub web UI (8090 taken by ntfy)
     "version": "v0.18.7",
     "agent_image": "docker.io/henrygd/beszel-agent:0.18.7",  # Podman Quadlet
+    # Declarative non-superuser accounts. tasks/beszel.py generates each password
+    # once (stored on the `beszel` BW item as `user_pw_<email>`) and on every
+    # deploy upserts the PocketBase user (role + verified) + assigns systems.
+    # role ∈ {user, admin, readonly}; systems = "all" or a list of system names.
+    # Exactly one entry sets token_fetch: True — the account tasks/beszel.py
+    # authenticates as to pull the agent's universal token (role `user`; readonly
+    # can't mint tokens). The PocketBase superuser bootstrap is separate (the
+    # `beszel` BW item login) and must NOT appear here.
+    "users": [
+        {"email": "agent@example.com", "role": "user", "systems": "all", "token_fetch": True},
+        {"email": "dashboard@example.com", "role": "readonly", "systems": "all"},
+        {"email": "you@example.com", "role": "user", "systems": "all"},
+    ],
+}
+
+# raspi-dashboard — stateless fan-in of gatus health + beszel metrics + trivy
+# CVE status onto one LAN-only page, behind oauth2-proxy (public: False).
+RASPI_DASHBOARD = {
+    "host": "127.0.0.1",
+    "port": 3007,
+    "url_prefix": "dashboard",
+    "image": "ghcr.io/eetu/raspi-dashboard:main",
+    "public": False,
+    "memory_max": "96M",
+    # Which beszel user (from BESZEL["users"]) this app authenticates as.
+    "beszel_user": "dashboard@example.com",
 }
 
 MCP_CHAT = {
@@ -594,6 +625,7 @@ _SUBDOMAIN_NAMES = (
     "TTS",
     "MCP_CHAT",
     "SHELF",
+    "RASPI_DASHBOARD",
 )
 _SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(

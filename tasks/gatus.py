@@ -16,10 +16,8 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
 from group_data.all import (
     CIFS,
-    KANIDM_OIDC_CLIENTS,
     NETWORK,
     UNBOUND,
 )
@@ -58,10 +56,12 @@ else:
         else GATUS["image"]
     )
 
-    # OIDC is optional — Gatus deploys without SSO if not in KANIDM_OIDC_CLIENTS
-    # or until Kanidm has generated the client secret on a previous deploy.
-    _oidc_client = KANIDM_OIDC_CLIENTS.get("gatus")
-    _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+    # No gatus-side SSO. The server (and its loopback REST API on
+    # 127.0.0.1:3001) is left unauthenticated so raspi-dashboard can fan it in;
+    # the human-facing gatus.{domain} route is gated by oauth2-proxy at the
+    # edge instead (see _gated_hosts in tasks/traefik.py). The gatus Kanidm
+    # OIDC client entry is kept in group_data/all.py so DNS/subdomain registration
+    # is unaffected — gatus just no longer consumes its secret.
 
     # NAS healthcheck host — the alias from HOSTS (e.g. "zenwifi"). The container
     # mounts the Pi's /etc/hosts read-only (see quadlet below), so it resolves the
@@ -249,19 +249,7 @@ alerting:
     conditions:
       - "[CONNECTED] == true"
 {_alerts}
-{
-        ""
-        if not _oidc_secret
-        else f'''security:
-  oidc:
-    issuer-url: "https://idm.{DOMAIN}/oauth2/openid/gatus"
-    client-id: "gatus"
-    client-secret: "{_oidc_secret}"
-    redirect-url: "https://gatus.{DOMAIN}/authorization-code/callback"
-    scopes:
-      - openid
-'''
-    }storage:
+storage:
   type: sqlite
   path: /data/gatus.db
 

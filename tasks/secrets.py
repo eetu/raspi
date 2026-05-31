@@ -23,6 +23,7 @@ MCP_CHAT = optional("MCP_CHAT")
 SCRIBE = optional("SCRIBE")
 SHIM = optional("SHIM")
 SHELF = optional("SHELF")
+RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
 
 DOMAIN = NETWORK["domain"]
 
@@ -218,6 +219,19 @@ if SHELF:
         "shelf.env",
         f"SHELF_API_KEY={bw.shelf_api_key()}\n",
         "/etc/secrets/shelf.env",
+    )
+
+# --- raspi-dashboard ---
+# Read-only beszel creds for the user declared in BESZEL["users"]. The password
+# is generated once + stored on the `beszel` BW item (vault.beszel_user_password);
+# tasks/beszel.py provisions the matching PocketBase user. The file is always
+# written (the quadlet's EnvironmentFile requires it to exist).
+if RASPI_DASHBOARD:
+    _dash_email = RASPI_DASHBOARD["beszel_user"]
+    _put_secret(
+        "raspi-dashboard.env",
+        f"BESZEL_USER={_dash_email}\nBESZEL_PASSWORD={bw.beszel_user_password(_dash_email)}\n",
+        "/etc/secrets/raspi-dashboard.env",
     )
 
 # --- restic ---

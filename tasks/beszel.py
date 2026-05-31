@@ -9,6 +9,7 @@ re-adding the block + redeploying restores the service.
 
 import hashlib
 import io
+import json
 
 from pyinfra.operations import files, server, systemd
 
@@ -16,6 +17,9 @@ import vault as bw
 from tasks.util import optional, restart_if_changed
 
 BESZEL = optional("BESZEL")
+# raspi-dashboard reads beszel through a dedicated read-only user; we provision
+# that user here (this is where the PB superuser creds + hub readiness live).
+RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
 
 
 if BESZEL is None:
@@ -231,82 +235,150 @@ WantedBy=multi-user.target
         ],
     )
 
-    # Sync the regular hub user's password on every deploy so password rotation
-    # works by updating BW and redeploying. Uses superuser token to PATCH the
-    # user record. Credentials passed via env so special chars are safe.
-    server.shell(
-        name="Sync beszel user password from Bitwarden",
-        commands=[
-            f"""
-            set -a; . /etc/secrets/beszel-hub.env; set +a
-            if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then exit 0; fi
-            export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
-            python3 << 'PYEOF'
-import json, os, urllib.request
-email = os.environ["__BZ_EMAIL"]
-pw    = os.environ["__BZ_PW"]
-base  = "http://{BESZEL["host"]}:{BESZEL["port"]}"
+    # Provision declarative non-superuser accounts (BESZEL["users"]). Generates
+    # each password once via the BW item, then idempotently upserts the
+    # PocketBase user (password + role + verified) and assigns it to systems.
+    # Passwords reach the Pi in a 600 file rather than shell args (same handling
+    # as the other beszel secrets).
+    _managed_users = BESZEL.get("users", [])
+    if _managed_users:
+        _users_payload = json.dumps(
+            [
+                {
+                    "email": u["email"],
+                    "role": u.get("role", "user"),
+                    "systems": u["systems"],
+                    "password": bw.beszel_user_password(u["email"]),
+                }
+                for u in _managed_users
+            ]
+        )
+        files.put(
+            name="Write beszel managed-users payload",
+            src=io.BytesIO(_users_payload.encode()),
+            dest="/etc/secrets/beszel-users.json",
+            user="root",
+            group="root",
+            mode="600",
+        )
+        server.shell(
+            name="Provision beszel managed users (upsert + assign systems)",
+            commands=[
+                f"""
+                set -a; . /etc/secrets/beszel-hub.env; set +a
+                if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then exit 0; fi
+                for i in $(seq 1 30); do
+                  curl -sf http://{BESZEL["host"]}:{BESZEL["port"]}/api/health >/dev/null 2>&1 && break
+                  sleep 1
+                done
+                python3 << 'PYEOF'
+import json, os, urllib.parse, urllib.request
+base = "http://{BESZEL["host"]}:{BESZEL["port"]}"
 def req(url, data=None, method=None, token=None):
     headers = {{"Content-Type": "application/json"}}
     if token: headers["Authorization"] = token
     r = urllib.request.Request(base + url, data=data and json.dumps(data).encode(), headers=headers, method=method)
     return json.loads(urllib.request.urlopen(r).read())
-try:
-    su_token = req("/api/collections/_superusers/auth-with-password", {{"identity": email, "password": pw}})["token"]
-    user_id  = req("/api/collections/users/records", token=su_token)["items"][0]["id"]
-    req(f"/api/collections/users/records/{{user_id}}", {{"password": pw, "passwordConfirm": pw}}, "PATCH", su_token)
-    print("beszel: user password synced")
-except Exception as e:
-    print(f"beszel: user password sync failed: {{e}}")
-    raise SystemExit(1)
+su = req("/api/collections/_superusers/auth-with-password",
+         {{"identity": os.environ["USER_EMAIL"], "password": os.environ["USER_PASSWORD"]}})["token"]
+systems = req("/api/collections/systems/records?perPage=200", token=su)["items"]
+with open("/etc/secrets/beszel-users.json") as f:
+    managed = json.load(f)
+for u in managed:
+    email, pw, role, scope = u["email"], u["password"], u["role"], u["systems"]
+    # Defense: the bootstrap superuser (the `beszel` BW login) must stay out of
+    # BESZEL["users"]. If an entry ever shares that email, skip rather than
+    # disturb the superuser's paired account.
+    if email == os.environ["USER_EMAIL"]:
+        print(f"beszel: skip managed user {{email}} — reserved for bootstrap")
+        continue
+    flt = urllib.parse.quote(f'email="{{email}}"')
+    found = req(f"/api/collections/users/records?filter={{flt}}", token=su)["items"]
+    if found:
+        uid = found[0]["id"]
+        req(f"/api/collections/users/records/{{uid}}",
+            {{"password": pw, "passwordConfirm": pw, "verified": True, "role": role}}, "PATCH", su)
+    else:
+        uid = req("/api/collections/users/records",
+                  {{"email": email, "password": pw, "passwordConfirm": pw,
+                    "verified": True, "role": role, "emailVisibility": False}}, "POST", su)["id"]
+    targets = systems if scope == "all" else [s for s in systems if s["name"] in scope]
+    for s in targets:
+        cur = s.get("users") or []
+        if uid not in cur:
+            req(f"/api/collections/systems/records/{{s['id']}}", {{"users": cur + [uid]}}, "PATCH", su)
+    print(f"beszel: provisioned {{email}} (role={{role}}, systems={{len(targets)}})")
 PYEOF
-            unset __BZ_EMAIL __BZ_PW
-            """,
-        ],
-    )
+                """,
+            ],
+        )
 
-    # Reconcile the hub universal token into the agent env file. Always passes
-    # `enable=1&permanent=1` so the value is persisted in the hub DB; if a token
-    # already exists in the env file (e.g. an ephemeral one from before this fix
-    # went in) it is forwarded as `&token=<existing>` so the hub upserts the same
-    # value as permanent — the running agent's registration stays valid and the
-    # call is idempotent across re-deploys (hub api.go:230-247).
+    # Reconcile the agent's universal token. Authenticates as the managed user
+    # flagged token_fetch (role `user` — readonly can't mint tokens), NOT the
+    # superuser bootstrap. Passes enable=1&permanent=1 so the value persists in
+    # the hub DB; forwards any existing token so re-deploys promote the same
+    # value in place rather than minting a fresh UUID (keeps the running agent's
+    # registration valid — hub api.go:230-247).
     server.shell(
         name="Reconcile beszel universal token from hub API",
         commands=[
             f"""
-            set -a; . /etc/secrets/beszel-hub.env; set +a
-            if [ -z "$USER_EMAIL" ] || [ -z "$USER_PASSWORD" ]; then
-              echo "beszel: USER_EMAIL/USER_PASSWORD not set, skipping token sync" >&2; exit 0
-            fi
-            CURRENT_TOKEN=$(grep -oP 'TOKEN=\\K.+' /etc/secrets/beszel-agent.env 2>/dev/null || true)
-            # Wait for hub to accept connections
             for i in $(seq 1 30); do
               curl -sf http://{BESZEL["host"]}:{BESZEL["port"]}/api/health >/dev/null 2>&1 && break
               sleep 1
             done
-            # Auth as regular user (universal-token endpoint requires this, not superuser)
-            export __BZ_EMAIL="$USER_EMAIL" __BZ_PW="$USER_PASSWORD"
-            JWT=$(curl -sf -X POST http://{BESZEL["host"]}:{BESZEL["port"]}/api/collections/users/auth-with-password \
-              -H 'Content-Type: application/json' \
-              -d "$(python3 -c 'import json,os; print(json.dumps({{"identity":os.environ["__BZ_EMAIL"],"password":os.environ["__BZ_PW"]}}),end="")')" \
-              | grep -oP '"token":"\\K[^"]+')
-            unset __BZ_EMAIL __BZ_PW
-            if [ -z "$JWT" ]; then
-              echo "beszel: failed to authenticate for token fetch" >&2; exit 1
-            fi
-            # Forward existing token if any so we promote it to permanent in place
-            # rather than minting a fresh UUID and breaking the agent's session.
-            URL="http://{BESZEL["host"]}:{BESZEL["port"]}/api/beszel/universal-token?enable=1&permanent=1"
-            if [ -n "$CURRENT_TOKEN" ]; then URL="$URL&token=$CURRENT_TOKEN"; fi
-            TOKEN=$(curl -sf "$URL" -H "Authorization: $JWT" | grep -oP '"token":"\\K[^"]+')
-            if [ -z "$TOKEN" ]; then
-              echo "beszel: failed to fetch universal token" >&2; exit 1
-            fi
-            HUB_KEY=$(ssh-keygen -y -f /var/lib/beszel-hub/beszel_data/id_ed25519)
-            printf 'TOKEN=%s\nKEY=%s\n' "$TOKEN" "$HUB_KEY" > /etc/secrets/beszel-agent.env
-            chmod 600 /etc/secrets/beszel-agent.env
-            echo "beszel: universal token (permanent) and hub key written to agent env"
+            python3 << 'PYEOF'
+import json, os, subprocess, urllib.error, urllib.request
+base = "http://{BESZEL["host"]}:{BESZEL["port"]}"
+
+def req(url, data=None, method=None, token=None):
+    headers = {{"Content-Type": "application/json"}}
+    if token: headers["Authorization"] = token
+    r = urllib.request.Request(base + url, data=data and json.dumps(data).encode(), headers=headers, method=method)
+    return json.loads(urllib.request.urlopen(r).read())
+
+try:
+    with open("/etc/secrets/beszel-users.json") as f:
+        managed = json.load(f)
+except FileNotFoundError:
+    print("beszel: no managed-users file — skipping token reconcile"); raise SystemExit(0)
+
+tf = next((u for u in managed if u.get("token_fetch")), None)
+if not tf:
+    print("beszel: no token_fetch user configured — skipping token reconcile"); raise SystemExit(0)
+
+try:
+    jwt = req("/api/collections/users/auth-with-password",
+              {{"identity": tf["email"], "password": tf["password"]}})["token"]
+except urllib.error.HTTPError as e:
+    print(f"beszel: token_fetch user auth failed ({{e.code}})"); raise SystemExit(1)
+
+# Promote any existing token to permanent in place (don't mint a fresh UUID).
+current = ""
+try:
+    for line in open("/etc/secrets/beszel-agent.env"):
+        if line.startswith("TOKEN="):
+            current = line.split("=", 1)[1].strip()
+except FileNotFoundError:
+    pass
+
+url = "/api/beszel/universal-token?enable=1&permanent=1"
+if current:
+    url += f"&token={{current}}"
+token = req(url, token=jwt).get("token", "")
+if not token:
+    print("beszel: failed to fetch universal token"); raise SystemExit(1)
+
+hub_key = subprocess.run(
+    ["ssh-keygen", "-y", "-f", "/var/lib/beszel-hub/beszel_data/id_ed25519"],
+    capture_output=True, text=True, check=True,
+).stdout.strip()
+
+with open("/etc/secrets/beszel-agent.env", "w") as f:
+    f.write(f"TOKEN={{token}}\\nKEY={{hub_key}}\\n")
+os.chmod("/etc/secrets/beszel-agent.env", 0o600)
+print("beszel: universal token (permanent) + hub key written to agent env")
+PYEOF
             """,
         ],
     )

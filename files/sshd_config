@@ -20,3 +20,11 @@ X11Forwarding no
 PrintMotd no
 AcceptEnv LANG LC_*
 Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Global default stays no (above). Scoped exception: allow the admin user to
+# TCP-forward so local dev can tunnel to loopback-only services (gatus :3001,
+# beszel :8091) for the raspi-dashboard app. eetu's key already grants shell +
+# sudo, so this adds negligible marginal risk over the existing access.
+# Match blocks must be last — everything after this line is conditional.
+Match User eetu
+    AllowTcpForwarding yes

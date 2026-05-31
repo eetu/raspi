@@ -180,6 +180,33 @@ def wg_portal_creds() -> dict:
     }
 
 
+def _set_field(item_name: str, field_name: str, value: str, field_type: int = 1) -> None:
+    """Upsert a single custom field on a BW item (field_type 1 = hidden)."""
+    item = json.loads(json.dumps(_get_item(item_name)))  # copy
+    fields = item.get("fields") or []
+    existing = next((f for f in fields if f["name"] == field_name), None)
+    if existing:
+        existing["value"] = value
+    else:
+        fields.append({"name": field_name, "value": value, "type": field_type})
+    item["fields"] = fields
+    _edit_item(item)
+
+
+def beszel_user_password(email: str) -> str:
+    """Get — or generate once and store — the password for a managed beszel user
+    (BESZEL["users"]). Kept on the `beszel` BW item as the hidden field
+    `user_pw_<email>` so it's stable across deploys and recoverable. Generated on
+    first call; tasks/beszel.py then upserts the PocketBase user with it."""
+    field = f"user_pw_{email}"
+    existing = bw_field("beszel", field)
+    if existing:
+        return existing
+    pw = secrets.token_urlsafe(32)
+    _set_field("beszel", field, pw)
+    return pw
+
+
 def cloudflare() -> dict:
     item = _get_item("cloudflare")
     return {
