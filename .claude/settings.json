@@ -1,1 +1,11 @@
-{}
+{
+  "extraKnownMarketplaces": {
+    "eetu-skills": {
+      "source": { "source": "github", "repo": "eetu/claude-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "homebrew@eetu-skills": true,
+    "coding-style@eetu-skills": true
+  }
+}
