@@ -257,7 +257,7 @@ alerting:
     issuer-url: "https://idm.{DOMAIN}/oauth2/openid/gatus"
     client-id: "gatus"
     client-secret: "{_oidc_secret}"
-    redirect-url: "https://status.{DOMAIN}/authorization-code/callback"
+    redirect-url: "https://gatus.{DOMAIN}/authorization-code/callback"
     scopes:
       - openid
 '''

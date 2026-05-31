@@ -197,11 +197,16 @@ for name, cfg in clients.items():
         }}, token=token)
         print(f"kanidm: oauth2 {{name}} created")
     else:
-        # Update redirect URL via PATCH (idempotent)
+        # Update redirect + landing origin via PATCH (idempotent). Landing must
+        # be updated too — it's set only on create, so a url_prefix rename
+        # (e.g. status->gatus) would otherwise leave a stale landing origin.
         api("PATCH", f"/v1/oauth2/{{name}}", {{
-            "attrs": {{"oauth2_rs_origin": [cfg["redirect"]]}}
+            "attrs": {{
+                "oauth2_rs_origin": [cfg["redirect"]],
+                "oauth2_rs_origin_landing": [cfg["origin"]],
+            }}
         }}, token=token)
-        print(f"kanidm: oauth2 {{name}} already exists, redirect updated")
+        print(f"kanidm: oauth2 {{name}} already exists, redirect + landing updated")
 
     # Set scope map for all persons (idempotent)
     api("POST", f"/v1/oauth2/{{name}}/_scopemap/idm_all_persons",

@@ -465,7 +465,10 @@ KANIDM = {
     "port": 8443,
     "url_prefix": "idm",
     "public": True,
-    # Pin to a specific release; set resolve_latest=True to track the latest 1.x.
+    # Pin to a specific release. Do NOT use resolve_latest on the Pi 4:
+    # kanidm 1.10.3 SIGILLs (exit 132) on the Cortex-A72 — that build needs a
+    # newer CPU baseline (kanidm#4371, fix in PR #4372). 1.10.2 is the newest
+    # confirmed working; 1.9.2 is the long-standing known-good.
     "image": "docker.io/kanidm/server:1.9.2",
     "resolve_latest": False,
 }
@@ -490,7 +493,7 @@ KANIDM_OIDC_CLIENTS = {
     },
     "gatus": {
         "display_name": "Gatus Monitoring",
-        "url_prefix": "status",
+        "url_prefix": "gatus",
         "public": True,
         "redirect_path": "/authorization-code/callback",
         "scopes": ["openid", "email", "profile"],
@@ -515,7 +518,7 @@ KANIDM_OIDC_CLIENTS = {
     },
     "beszel": {
         "display_name": "Beszel Monitoring",
-        "url_prefix": "metrics",
+        "url_prefix": "beszel",
         "public": True,
         "redirect_path": "/api/oauth2-redirect",
         "scopes": ["openid", "email", "profile"],
