@@ -56,7 +56,11 @@ else:
     )
 
     # --- CVE scan script ---
-    # Scans all running container images for HIGH/CRITICAL CVEs. Two sinks from
+    # Scans all running container images for HIGH/CRITICAL CVEs. Only
+    # *fixable* vulns (--ignore-unfixed) and only the vuln scanner
+    # (--scanners vuln, no secret scan) — actionable signal only: dependabot
+    # auto-bumps our own images, fixable third-party CVEs mean "pull a newer
+    # tag", and unfixed upstream CVEs are noise we can't act on. Two sinks from
     # one parse per image:
     #   1. Structured /var/lib/trivy/last-scan.json (assembled atomically at the
     #      end) — read by raspi-dashboard's /api/cve.
@@ -95,6 +99,8 @@ for image in $(podman ps --format "{{{{.Image}}}}" | sort -u); do
     json=$(/usr/local/bin/trivy image \\
             --cache-dir "$CACHE_DIR" \\
             --severity HIGH,CRITICAL \\
+            --ignore-unfixed \\
+            --scanners vuln \\
             --no-progress \\
             --quiet \\
             --format json \\
