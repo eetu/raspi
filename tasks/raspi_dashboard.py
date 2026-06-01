@@ -60,8 +60,9 @@ Network=host
 {_env_lines}
 EnvironmentFile=/etc/secrets/raspi-dashboard.env
 # RW so the backend can read last-scan.json and touch scan-request (the
-# trivy-cve-scan.path unit watches it). Rootful quadlet → container root can
-# write the host-shared mount without extra privilege.
+# trivy-cve-scan.path unit watches it). The container runs as uid 1000 (USER in
+# its Dockerfile); /var/lib/trivy is owned by 1000 in tasks/trivy.py so the
+# non-root process can write the host-shared mount.
 Volume=/var/lib/trivy:/var/lib/trivy
 AutoUpdate=registry
 Pull=newer

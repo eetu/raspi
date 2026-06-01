@@ -264,6 +264,19 @@ RandomizedDelaySec=1800
 WantedBy=timers.target
 """
 
+    # Shared mount: owned by the raspi-dashboard container's uid (USER 1000 in
+    # its Dockerfile) so the non-root container can touch scan-request and read
+    # last-scan.json. The scan service runs as root and writes last-scan.json
+    # regardless of owner.
+    files.directory(
+        name="Create /var/lib/trivy",
+        path="/var/lib/trivy",
+        user="1000",
+        group="1000",
+        mode="755",
+        present=True,
+    )
+
     for _dir in ("/var/lib/trivy/tmp", "/var/lib/trivy/cache"):
         files.directory(
             name=f"Create {_dir}",
