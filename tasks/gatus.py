@@ -163,7 +163,7 @@ alerting:
             _ep(
                 "Scribe",
                 f"http://127.0.0.1:{SCRIBE['port']}",
-                group="scribe",
+                group="apps",
                 comment="SCRIBE['host'] is 0.0.0.0 (mini's press worker reaches it directly) — probe loopback.",
             )
         )
