@@ -19,7 +19,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import BESZEL, GATUS
+from group_data.all import BESZEL, GATUS, NETWORK
 from tasks.util import optional
 
 RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
@@ -39,6 +39,9 @@ else:
         "DASHBOARD_BIND": f"{RASPI_DASHBOARD['host']}:{RASPI_DASHBOARD['port']}",
         "GATUS_URL": f"http://{GATUS['host']}:{GATUS['port']}",
         "BESZEL_URL": f"http://{BESZEL['host']}:{BESZEL['port']}",
+        # Public, human-facing beszel host (gated by oauth2-proxy at the edge).
+        # The SPA deep-links metrics rows to {this}/system/{id}.
+        "BESZEL_PUBLIC_URL": f"https://beszel.{NETWORK['domain']}",
         "TRIVY_SCAN_FILE": "/var/lib/trivy/last-scan.json",
         "TRIVY_SCAN_REQUEST": "/var/lib/trivy/scan-request",
         # Cap glibc per-thread arenas — the house default for the 1GB Pi, keeps
