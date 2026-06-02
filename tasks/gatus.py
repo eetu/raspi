@@ -102,9 +102,11 @@ alerting:
         else ""
     )
 
-    def _ep(name, url, *, interval="1m", conditions=("[STATUS] == 200",), comment=None, dns=None):
+    def _ep(
+        name, url, *, group, interval="1m", conditions=("[STATUS] == 200",), comment=None, dns=None
+    ):
         """Render one endpoint block, with a per-endpoint ntfy alert ref unless NTFY is retired."""
-        lines = [f"  - name: {name}"]
+        lines = [f"  - name: {name}", f"    group: {group}"]
         if comment:
             lines += [f"    # {line}" for line in comment.splitlines()]
         lines.append(f'    url: "{url}"')
@@ -123,35 +125,45 @@ alerting:
         _ep(
             "Pi-hole",
             f"https://pihole.{DOMAIN}/api/info/version",
+            group="dns",
             comment="Public unauth endpoint — bypasses oauth2-proxy via the pihole-monitor router.",
         ),
         _ep(
             "Kanidm",
             f"https://idm.{DOMAIN}/status",
+            group="auth",
             comment="Unauthenticated readiness probe, through Traefik so the wildcard cert is exercised too.",
         ),
         _ep(
             "oauth2-proxy",
             f"http://{OAUTH2_PROXY['host']}:{OAUTH2_PROXY['port']}/ping",
+            group="auth",
         ),
     ]
 
     # Optional services — each gated on its dict.
     if HALO:
-        _endpoints.append(_ep("Halo", f"https://halo.{DOMAIN}"))
+        _endpoints.append(_ep("Halo", f"https://halo.{DOMAIN}", group="apps"))
     if CHAT:
-        _endpoints.append(_ep("Chat", f"http://{CHAT['host']}:{CHAT['port']}/healthz"))
+        _endpoints.append(
+            _ep("Chat", f"http://{CHAT['host']}:{CHAT['port']}/healthz", group="apps")
+        )
     if MCP_CHAT:
-        _endpoints.append(_ep("MCP Chat", f"http://{MCP_CHAT['host']}:{MCP_CHAT['port']}/health"))
+        _endpoints.append(
+            _ep("MCP Chat", f"http://{MCP_CHAT['host']}:{MCP_CHAT['port']}/health", group="apps")
+        )
     if MEMOS:
-        _endpoints.append(_ep("Memos", f"http://{MEMOS['host']}:{MEMOS['port']}/healthz"))
+        _endpoints.append(
+            _ep("Memos", f"http://{MEMOS['host']}:{MEMOS['port']}/healthz", group="apps")
+        )
     if AUDIOBOOKSHELF:
-        _endpoints.append(_ep("Audiobookshelf", f"https://audiobooks.{DOMAIN}"))
+        _endpoints.append(_ep("Audiobookshelf", f"https://audiobooks.{DOMAIN}", group="media"))
     if SCRIBE:
         _endpoints.append(
             _ep(
                 "Scribe",
                 f"http://127.0.0.1:{SCRIBE['port']}",
+                group="scribe",
                 comment="SCRIBE['host'] is 0.0.0.0 (mini's press worker reaches it directly) — probe loopback.",
             )
         )
@@ -160,6 +172,7 @@ alerting:
             _ep(
                 "Shelf",
                 f"http://{SHELF['host']}:{SHELF['port']}/ping",
+                group="scribe",
                 comment=(
                     "/ping is the unauthenticated liveness probe — exercises scribe-shelf\n"
                     "without needing the bearer."
@@ -171,20 +184,22 @@ alerting:
             _ep(
                 "Shim",
                 f"http://{SHIM['host']}:{SHIM['port']}/health",
+                group="scribe",
                 comment="Loopback-only audible sidecar for scribe — /health is unauthenticated.",
             )
         )
     if WGPORTAL:
-        _endpoints.append(_ep("WireGuard Portal", f"https://vpn.{DOMAIN}"))
+        _endpoints.append(_ep("WireGuard Portal", f"https://vpn.{DOMAIN}", group="ops"))
     if NTFY:
-        _endpoints.append(_ep("ntfy", f"https://ntfy.{DOMAIN}"))
+        _endpoints.append(_ep("ntfy", f"https://ntfy.{DOMAIN}", group="ops"))
     if VAULTWARDEN:
-        _endpoints.append(_ep("Vaultwarden", f"https://vault.{DOMAIN}"))
+        _endpoints.append(_ep("Vaultwarden", f"https://vault.{DOMAIN}", group="apps"))
     if NAVIDROME:
         _endpoints.append(
             _ep(
                 "Navidrome",
                 f"http://{NAVIDROME['host']}:{NAVIDROME['port']}/rest/getOpenSubsonicExtensions.view?f=json&c=gatus&v=1.16.1",
+                group="media",
                 comment=(
                     "Navidrome sits behind oauth2-proxy on the public hostname. Hit the\n"
                     "unauthenticated OpenSubsonic endpoint on loopback to bypass SSO."
@@ -197,6 +212,7 @@ alerting:
             _ep(
                 "Yarr",
                 f"http://{YARR['host']}:{YARR['port']}",
+                group="apps",
                 comment=(
                     "Loopback, not https://rss.{domain} — oauth2-proxy answers 401 at the\n"
                     "edge before Traefik touches the upstream, so an edge probe passes\n"
@@ -209,16 +225,20 @@ alerting:
             _ep(
                 "Syncthing",
                 f"https://syncthing.{DOMAIN}/rest/noauth/health",
+                group="apps",
                 comment="/rest/noauth/health bypasses oauth2-proxy via the syncthing-monitor router.",
             )
         )
     if BESZEL:
-        _endpoints.append(_ep("Beszel", f"http://{BESZEL['host']}:{BESZEL['port']}/api/health"))
+        _endpoints.append(
+            _ep("Beszel", f"http://{BESZEL['host']}:{BESZEL['port']}/api/health", group="ops")
+        )
     if VUIO:
         _endpoints.append(
             _ep(
                 "VuIO",
                 f"http://127.0.0.1:{VUIO['port']}",
+                group="media",
                 comment="VUIO['host'] is 0.0.0.0 (LAN-wide for DLNA/SSDP) — probe loopback.",
             )
         )
@@ -227,6 +247,7 @@ alerting:
             _ep(
                 "Dashboard",
                 f"http://{RASPI_DASHBOARD['host']}:{RASPI_DASHBOARD['port']}/healthz",
+                group="ops",
             )
         )
 
@@ -235,6 +256,7 @@ alerting:
         _ep(
             "Unbound DNS",
             f"127.0.0.1:{UNBOUND['port']}",
+            group="dns",
             interval="2m",
             dns={"query-name": "pi-hole.net", "query-type": "A"},
             conditions=("len([BODY]) > 0",),
@@ -242,13 +264,14 @@ alerting:
         _ep(
             "Pi-hole DNS",
             f"{NETWORK['lan_ip']}:53",
+            group="dns",
             interval="2m",
             dns={"query-name": "pi-hole.net", "query-type": "A"},
             conditions=("len([BODY]) > 0",),
         ),
-        _ep("Pi", f"icmp://{NETWORK['lan_ip']}", conditions=("[CONNECTED] == true",)),
-        _ep("NAS", f"icmp://{_nas_host}", conditions=("[CONNECTED] == true",)),
-        _ep("Internet", "icmp://1.1.1.1", conditions=("[CONNECTED] == true",)),
+        _ep("Pi", f"icmp://{NETWORK['lan_ip']}", group="core", conditions=("[CONNECTED] == true",)),
+        _ep("NAS", f"icmp://{_nas_host}", group="core", conditions=("[CONNECTED] == true",)),
+        _ep("Internet", "icmp://1.1.1.1", group="core", conditions=("[CONNECTED] == true",)),
     ]
 
     _config_yaml = f"""\
