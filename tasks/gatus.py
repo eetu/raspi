@@ -56,6 +56,7 @@ else:
     RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
     SCRIBE = optional("SCRIBE")
     SHELF = optional("SHELF")
+    SHIM = optional("SHIM")
     SYNCTHING = optional("SYNCTHING")
     VAULTWARDEN = optional("VAULTWARDEN")
     VUIO = optional("VUIO")
@@ -163,6 +164,14 @@ alerting:
                     "/ping is the unauthenticated liveness probe — exercises scribe-shelf\n"
                     "without needing the bearer."
                 ),
+            )
+        )
+    if SHIM:
+        _endpoints.append(
+            _ep(
+                "Shim",
+                f"http://{SHIM['host']}:{SHIM['port']}/health",
+                comment="Loopback-only audible sidecar for scribe — /health is unauthenticated.",
             )
         )
     if WGPORTAL:
