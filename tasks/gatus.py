@@ -172,7 +172,7 @@ alerting:
             _ep(
                 "Shelf",
                 f"http://{SHELF['host']}:{SHELF['port']}/ping",
-                group="scribe",
+                group="apps",
                 comment=(
                     "/ping is the unauthenticated liveness probe — exercises scribe-shelf\n"
                     "without needing the bearer."
@@ -184,7 +184,7 @@ alerting:
             _ep(
                 "Shim",
                 f"http://{SHIM['host']}:{SHIM['port']}/health",
-                group="scribe",
+                group="apps",
                 comment="Loopback-only audible sidecar for scribe — /health is unauthenticated.",
             )
         )
