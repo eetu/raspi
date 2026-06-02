@@ -19,6 +19,10 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Gatus](https://github.com/TwiN/gatus) | Service monitoring and status page |
 | [Vaultwarden](https://github.com/dani-garcia/vaultwarden) | Self-hosted Bitwarden-compatible password vault |
 | [Memos](https://www.usememos.com) | Lightweight self-hosted markdown note / memo service with Kanidm SSO |
+| [Scribe](https://github.com/eetu/scribe) + shelf + shim | Self-hosted Audible library mirror — scribe downloads and converts owned books to M4B on the NAS, shelf serves a read-only ABS-compatible API of the result, shim wraps the Audible API |
+| [Chat](https://github.com/eetu/chat) | Self-hosted LLM chat UI — inference backends (Ollama, ComfyUI, STT/TTS) reverse-proxied from an off-Pi machine |
+| chat-mcp | MCP server exposing the chat backend's tools to AI assistants |
+| [raspi-dashboard](https://github.com/eetu/raspi-dashboard) | Single-pane dashboard — fans in Gatus health, Beszel metrics and Trivy CVE status |
 | [Trivy](https://github.com/aquasecurity/trivy) | CVE vulnerability scanner |
 | [Syncthing](https://syncthing.net) | Peer-to-peer file synchronization |
 | [VuIO](https://github.com/vuiodev/vuio) | DLNA media server for LAN movie streaming (auto-discovered by VLC) |
@@ -27,7 +31,7 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome and Syncthing behind Kanidm SSO |
 | [restic](https://restic.net) | Encrypted incremental backups of service state to the NAS, with one-shot restore on a fresh Pi |
 
-Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Kanidm and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and other services run as native binaries.
+Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Memos, Kanidm, Chat, chat-mcp, Scribe (with its shelf and shim sidecars), raspi-dashboard and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and the Beszel hub run as native binaries.
 
 ## Prerequisites
 
@@ -62,6 +66,8 @@ For Halo, the `secret_env` dict in `all.py` maps each env var name to its hidden
 | `beszel` | Beszel hub admin email (`username`) + password — seeds the hub UI user and is kept in sync with both the PocketBase superuser and regular user on every deploy |
 | `kanidm` | All fields written by the deploy on first run — create an empty login item named `kanidm`. Populated fields: `admin_password` and `idm_admin_password` (hidden, recovered via `kanidmd recover-account`), `{client}_client_secret` per OIDC client, `{username}_reset_token` per person |
 | `oauth2-proxy` | Empty login item — the deploy generates and stores `cookie_secret` (hidden) on first run; the OIDC `client_secret` lives on the `kanidm` item |
+| `chat` | Auto-generated hidden fields on first deploy: `session_key`, `mcp_api_key` (gates mcp-chat → chat hop), `mcp_server_key` (inbound bearer on chat-mcp) |
+| `scribe` | Auto-generated: `session_key`, `shim_passphrase`, `shelf_api_key`. Hand-pasted: `press_token` (must match the off-Pi press worker), `abs_token` (ABS API token for rescan POSTs) |
 | `restic` | Repository encryption password (`password` field) — load-bearing; losing this means every snapshot is permanently unreadable |
 | `asus-router` | SSH key pair for router firewall automation (optional, see below) |
 
@@ -102,22 +108,28 @@ uv run pyinfra inventory.py deploy.py
 
 ## Services
 
-All services are accessible via HTTPS on subdomains of the configured domain. They are only reachable from the LAN or over WireGuard — ports are firewalled from the internet.
+All services are accessible via HTTPS on subdomains of the configured domain. Subdomains are LAN/VPN-only by default (Pi-hole split DNS); a service dict can opt into internet exposure with `public: True` in `group_data/all.py`, which adds a Cloudflare A record — Traefik stays the only listener either way.
 
 | URL | Service |
 |---|---|
-| `halo.yourdomain.com` | Halo dashboard (`hcc.yourdomain.com` kept as legacy alias) |
+| `halo.yourdomain.com` | Halo dashboard |
 | `pihole.yourdomain.com` | Pi-hole admin |
 | `audiobooks.yourdomain.com` | Audiobookshelf |
 | `music.yourdomain.com` | Navidrome |
 | `rss.yourdomain.com` | Yarr RSS reader |
 | `vpn.yourdomain.com` | WireGuard peer management |
 | `ntfy.yourdomain.com` | Push notification server |
-| `status.yourdomain.com` | Gatus status page |
+| `gatus.yourdomain.com` | Gatus status page (SSO-gated) |
 | `vault.yourdomain.com` | Vaultwarden password vault |
 | `memo.yourdomain.com` | Memos notes |
+| `chat.yourdomain.com` | Chat |
+| `scribe.yourdomain.com` | Scribe |
+| `shelf.yourdomain.com` | Scribe shelf (ABS-compatible API) |
+| `mcp-chat.yourdomain.com` | chat-mcp MCP endpoint |
+| `dashboard.yourdomain.com` | raspi-dashboard (SSO-gated) |
 | `syncthing.yourdomain.com` | Syncthing file sync UI |
-| `metrics.yourdomain.com` | Beszel monitoring dashboard |
+| `beszel.yourdomain.com` | Beszel monitoring dashboard |
+| `ai.` / `comfy.` / `stt.` / `tts.yourdomain.com` | AI backends reverse-proxied to an off-Pi machine (Ollama, ComfyUI, speech-to-text, text-to-speech) |
 | `idm.yourdomain.com` | Kanidm identity management |
 | `auth.yourdomain.com` | oauth2-proxy SSO gateway (forward-auth — visited via service redirects, not directly) |
 
@@ -245,7 +257,7 @@ OIDC is fully optional — services that aren't in `KANIDM_OIDC_CLIENTS` deploy 
 
 Services that don't support Kanidm OIDC directly are gated via oauth2-proxy running at `auth.{domain}`. Traefik's `forwardAuth` middleware redirects unauthenticated requests to the Kanidm login page; after login the session cookie (scoped to `.{domain}`) is shared across all gated subdomains.
 
-**Gated services:** Pi-hole, Yarr, Navidrome (web UI + Subsonic API), Syncthing
+**Gated services:** Pi-hole, Yarr, Navidrome (web UI + Subsonic API), Syncthing, Gatus, raspi-dashboard
 
 **Exempted paths (no auth required):**
 - Pi-hole `/api/info/version` — used by Gatus uptime checks
@@ -313,7 +325,7 @@ Podman container services get filesystem isolation from the container runtime it
 
 LAN-only services are blocked from reaching the internet via **nftables cgroup-based filtering** (`tasks/network_restrict.py`). This mitigates supply chain attacks where a compromised binary or container image tries to phone home.
 
-**Restricted services:** Audiobookshelf, Navidrome, ntfy, oauth2-proxy, Syncthing, wg-portal, VuIO, Beszel hub, Beszel agent
+**Restricted services:** Audiobookshelf, Navidrome, ntfy, oauth2-proxy, Syncthing, wg-portal, VuIO, Beszel hub, Beszel agent, Chat, chat-mcp, Scribe, raspi-dashboard. Scribe's shelf sidecar is deliberately unrestricted — it proxies cover images from the Audible CDN (bearer-gated, read-only fetches).
 
 **Allowed destinations:** localhost, LAN CIDR, WireGuard subnet, SSDP multicast (239.255.255.250)
 
@@ -334,11 +346,9 @@ VuIO is a LAN-only DLNA service and does not have a Traefik router or Cloudflare
 
 All alerts are delivered to the ntfy topic configured in `NTFY["topic"]` (default: `raspi-alerts`).
 
-### Container image updates — Diun
+### Container image updates — podman auto-update
 
-Diun polls container registries every 6 hours and alerts when:
-- The digest for a running image tag has changed (e.g. a security patch published under the same tag)
-- A newer semver tag exists for any running image (only the 10 most recent clean `vX.Y.Z` tags are checked — arch-specific variants are excluded to keep API calls low)
+Quadlet containers carry `io.containers.autoupdate=registry`: the `podman-auto-update` timer pulls each running tag, restarts the container when the digest changes, and prunes superseded images afterwards (drop-in in `tasks/podman.py`). Version-pinned images (e.g. Kanidm) only move when the tag in `group_data/all.py` is bumped and redeployed.
 
 Docker Hub credentials from Bitwarden are used to avoid unauthenticated pull rate limits.
 
@@ -346,7 +356,7 @@ No setup required — runs automatically after deploy.
 
 ### CVE vulnerability scanning — Trivy
 
-Trivy scans all running container images for HIGH and CRITICAL CVEs once a week. If any are found you get one ntfy notification per affected image with instructions to SSH in for details.
+Trivy scans all running container images for HIGH and CRITICAL CVEs twice a week (Mon + Thu), filtered to actionable vulnerability findings. If any are found you get one ntfy notification per affected image with instructions to SSH in for details. A path unit also triggers a scan on demand — raspi-dashboard's rescan button writes the trigger file. Scan results land in `/var/lib/trivy/last-scan.json` for the dashboard to render.
 
 Run a scan manually:
 
@@ -360,19 +370,13 @@ Or inspect a specific image directly:
 trivy image ghcr.io/advplyr/audiobookshelf:2.33.1
 ```
 
-### Native binary version checks
+### Native binary versions
 
-A daily timer checks Traefik and wg-portal against their latest GitHub releases and sends an ntfy alert if either is outdated. Re-deploy to update.
-
-Run manually:
-
-```sh
-sudo /usr/local/bin/check-versions.sh
-```
+Native binaries are pinned by the `version` field in `group_data/all.py`; container images with `resolve_latest=True` resolve the newest GitHub release at deploy time. Bump the version (or rely on `resolve_latest`) and re-deploy to update.
 
 ## Backups and disaster recovery
 
-Service state (Vaultwarden DB, Kanidm DB, Navidrome library/playlists, Yarr feeds, Audiobookshelf metadata, Syncthing index, wg-portal DB, Beszel hub DB, Traefik `acme.json`) is snapshotted to the NAS as an **encrypted, deduplicated, incremental** restic repository. Music/audiobooks/movies are not backed up — they already live on the NAS.
+Service state (Vaultwarden DB, Kanidm DB, Navidrome library/playlists, Memos DB, Gatus history, Yarr feeds, Audiobookshelf metadata, Scribe library + shim auth, Chat history, Syncthing index, wg-portal DB, Beszel hub DB, Pi-hole gravity/custom lists, Traefik `acme.json`) is snapshotted to the NAS as an **encrypted, deduplicated, incremental** restic repository. Music/audiobooks/movies are not backed up — they already live on the NAS.
 
 **Schedule**
 
