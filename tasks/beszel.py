@@ -44,7 +44,7 @@ if BESZEL is None:
 else:
     VERSION = BESZEL["version"]
     _HUB_RELEASE = (
-        f"https://github.com/henrygd/beszel/releases/download/{VERSION}/beszel_Linux_arm64.tar.gz"
+        f"https://github.com/henrygd/beszel/releases/download/{VERSION}/beszel_linux_arm64.tar.gz"
     )
 
     # --- Hub binary ---
@@ -118,7 +118,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/var/lib/beszel-hub
 EnvironmentFile=/etc/secrets/beszel-hub.env
-ExecStart=/usr/local/bin/beszel serve --http {BESZEL["host"]}:{BESZEL["port"]}
+ExecStart=/usr/local/bin/beszel serve --http {BESZEL.get("bind", BESZEL["host"])}:{BESZEL["port"]}
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
