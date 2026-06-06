@@ -482,6 +482,28 @@ RASPI_DASHBOARD = {
     "beszel_user": "dashboard@example.com",
 }
 
+# ocular — camera-vision app on a separate camera node (e.g. a Pi 3 B+ with a
+# camera). raspi only proxies it: Traefik upstream is the node's LAN IP (the
+# AI/COMFY off-host pattern). The camera/detector block is rendered into
+# /etc/ocular/config.json on the node by tasks/ocular.py (native deploy, shipped
+# from the sibling ../ocular working tree). LAN-only subdomain (no "public").
+# Belongs to the `camera` feature.
+OCULAR = {
+    "host": "192.168.x.z",  # camera node LAN IP
+    "port": 8099,
+    "url_prefix": "ocular",
+    # rotation: 0 for an upright mount; 90/270 sideways; 180 upside-down. Live-
+    # tunable from the UI, so just confirm from the feed.
+    "camera": {"width": 640, "height": 480, "fps": 15, "rotation": 0},
+    "revolution": {
+        "roi": [280, 200, 80, 80],  # marker region in processing px — tune live
+        "threshold": 60,
+        "debounce_frames": 3,
+        "wheel_circumference_m": 0.0,  # set once measured → enables distance
+        "marker_is_dark": True,
+    },
+}
+
 MCP_CHAT = {
     "host": "127.0.0.1",
     "port": 8092,  # `:main` floats — Pull=newer + AutoUpdate=registry track ghcr.
@@ -631,6 +653,7 @@ _SUBDOMAIN_NAMES = (
     "MCP_CHAT",
     "SHELF",
     "RASPI_DASHBOARD",
+    "OCULAR",
 )
 _SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(

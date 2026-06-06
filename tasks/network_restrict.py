@@ -29,6 +29,7 @@ RESTRICTED = [
     "navidrome",
     "ntfy",
     "oauth2-proxy",
+    "ocular",
     "raspi-dashboard",
     "scribe",
     # Shelf intentionally NOT restricted: /api/items/{id}/cover proxies

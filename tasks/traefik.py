@@ -41,6 +41,7 @@ MCP_CHAT = optional("MCP_CHAT")
 MEMOS = optional("MEMOS")
 NAVIDROME = optional("NAVIDROME")
 NTFY = optional("NTFY")
+OCULAR = optional("OCULAR")
 RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
 SCRIBE = optional("SCRIBE")
 SHELF = optional("SHELF")
@@ -85,6 +86,10 @@ if GATUS and _oauth2_active:
 # edge. Always gate it when oauth2-proxy is active.
 if RASPI_DASHBOARD and _oauth2_active:
     _gated_hosts.append("dashboard")
+# ocular runs on the camera node (raspo); raspi only proxies it. SSO-gate the
+# human route; the /status monitor router below bypasses oauth2 for gatus.
+if OCULAR and _oauth2_active:
+    _gated_hosts.append("ocular")
 
 # Optional route registry: (router/service name, gating dict, default subdomain).
 # The subdomain prefix comes from the dict's own `url_prefix` when set
@@ -107,6 +112,7 @@ ROUTES = [
     ("syncthing", SYNCTHING, "syncthing"),
     ("beszel", BESZEL, "beszel"),
     ("dashboard", RASPI_DASHBOARD, "dashboard"),
+    ("ocular", OCULAR, "ocular"),
     ("ai", AI, "ai"),
     ("comfy", COMFY, "comfy"),
     ("stt", STT, "stt"),
@@ -291,6 +297,17 @@ _syncthing_monitor = f"""\
       tls:
         certResolver: cloudflare"""
 
+# Unauthenticated ocular liveness endpoint for Gatus — bypasses oauth2 so the
+# probe isn't redirected to the login page.
+_ocular_monitor = f"""\
+    ocular-monitor:
+      rule: "Host(`ocular.{DOMAIN}`) && Path(`/status`)"
+      service: ocular
+      priority: 100
+      entryPoints: [websecure]
+      tls:
+        certResolver: cloudflare"""
+
 _routers = [_required_routers]
 _services = [
     _service_block("pihole", f"http://{PIHOLE['host']}:{PIHOLE['web_port']}"),
@@ -308,6 +325,8 @@ for _name, _cfg, _default_prefix in ROUTES:
     _mws = [f"oauth2-chain-{_name}"] if _name in _gated_hosts else []
     if _name == "syncthing":
         _routers.append(_syncthing_monitor)
+    if _name == "ocular":
+        _routers.append(_ocular_monitor)
     _routers.append(_router_block(_name, _prefix, _aliases, _mws))
     _services.append(_service_block(_name, f"http://{_cfg['host']}:{_cfg['port']}"))
 

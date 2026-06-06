@@ -162,6 +162,19 @@ if feature("monitoring") and _beszel:
         f"comment 'Beszel hub LAN (agents)'\n        "
     )
 
+# ocular: opened to the LAN only on the camera host so raspi's Traefik can reach
+# the off-host upstream. The node is LAN-only + egress-restricted otherwise.
+_ocular = optional("OCULAR")
+_ocular_rule = ""
+_ocular_cmd = ""
+if feature("camera") and _ocular:
+    _op = _ocular["port"]
+    _ocular_rule = f"from {NETWORK['lan_cidr']} {_op}tcp "
+    _ocular_cmd = (
+        f"ufw allow from {NETWORK['lan_cidr']} to any port {_op} proto tcp "
+        f"comment 'ocular LAN (traefik upstream)'\n        "
+    )
+
 _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 22tcp "
     f"from {WIREGUARD['subnet']} 22tcp "
@@ -177,6 +190,7 @@ _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 22000tcp "
     f"from {NETWORK['lan_cidr']} 22000udp "
     f"{_beszel_hub_rule}"
+    f"{_ocular_rule}"
     f"route wg0"
 )
 
@@ -205,7 +219,7 @@ server.shell(
         ufw allow from {NETWORK["lan_cidr"]} to any port 21027 proto udp comment 'Syncthing discovery'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto tcp comment 'Syncthing sync TCP'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto udp comment 'Syncthing QUIC'
-        {_beszel_hub_cmd}ufw route allow in on wg0 comment 'WireGuard forwarding'
+        {_beszel_hub_cmd}{_ocular_cmd}ufw route allow in on wg0 comment 'WireGuard forwarding'
         ufw --force enable
         echo "$WANT" > "$STAMP"
         """,
