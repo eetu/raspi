@@ -53,6 +53,7 @@ else:
     MEMOS = optional("MEMOS")
     NAVIDROME = optional("NAVIDROME")
     NTFY = optional("NTFY")
+    OCULAR = optional("OCULAR")
     RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
     SCRIBE = optional("SCRIBE")
     SHELF = optional("SHELF")
@@ -248,6 +249,15 @@ alerting:
                 "Dashboard",
                 f"http://{RASPI_DASHBOARD['host']}:{RASPI_DASHBOARD['port']}/healthz",
                 group="ops",
+            )
+        )
+    if OCULAR:
+        _endpoints.append(
+            _ep(
+                "ocular",
+                f"http://{OCULAR['host']}:{OCULAR['port']}/status",
+                group="ops",
+                comment="Camera node (raspo) — unauth liveness probed directly over the LAN.",
             )
         )
 

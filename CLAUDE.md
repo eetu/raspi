@@ -1,15 +1,26 @@
 # Raspi IaC
 
-Agentless infrastructure-as-code for a Raspberry Pi 4 (1 GB) home server, using **pyinfra** (Python, SSH-only, no agents).
+Agentless infrastructure-as-code for a fleet of Raspberry Pis, using **pyinfra**
+(Python, SSH-only, no agents). Two hosts today:
+
+- **raspi** — Pi 4 (1 GB), the full home server (every feature).
+- **raspo** — Pi 3 B+, a small **camera node** (base hardening + the `camera`
+  vision app + a beszel telemetry agent; no DNS/proxy/apps).
+
+Which tasks run on which host is driven by a **feature map** — see *Hosts &
+features* below.
 
 ## Deploy
 
 ```fish
-set -x BW_SESSION (bw unlock --raw)   # unlock Bitwarden first
-uv run pyinfra inventory.py deploy.py
+set -x BW_SESSION (bw unlock --raw)        # unlock Bitwarden first
+uv run pyinfra inventory.py deploy.py --limit raspi   # the full server
+uv run pyinfra inventory.py deploy.py --limit raspo   # the camera node
 ```
 
-Idempotent — safe to re-run at any time.
+`--limit <group>` targets one host; omit it to deploy both. `-y` skips the
+interactive confirmation (needed for non-interactive runs). A camera-node deploy
+needs no `BW_SESSION` (it writes no secrets). Idempotent — safe to re-run.
 
 ## Validate before commit
 
@@ -26,12 +37,64 @@ A save hook runs `ruff format` automatically, which removes unused imports. When
 
 | File | Purpose |
 |---|---|
-| `deploy.py` | Entry point — ordered list of `local.include()` task files |
-| `inventory.py` | SSH target (Pi IP, user, key) |
-| `group_data/all.py` | All service config (ports, versions, images) — gitignored |
+| `deploy.py` | Entry point — includes each task in `DEPLOY` whose feature is in the host's `FEATURES` |
+| `group_data/features.py` | Ordered `DEPLOY` manifest (task → feature) + `validate()` for feature sets |
+| `inventory.py` | SSH targets, grouped per host (`raspi`, `raspo`) — gitignored |
+| `group_data/<host>.py` | Per-host `FEATURES` set (`raspi.py`, `raspo.py`) |
+| `group_data/all.py` | All service config (ports, versions, images) — gitignored, shared by all hosts |
 | `group_data/all.example.py` | Template for `all.py` — keep in sync when adding services |
 | `vault.py` | Bitwarden CLI helpers — secrets fetched at deploy time |
 | `tasks/` | One file per service |
+
+## Hosts & features
+
+Multi-host selection is **coarse**: each host picks a set of **features** (task
+bundles), not individual services. This avoids making all ~40 tasks individually
+host-aware.
+
+- `inventory.py` defines pyinfra **groups** — the variable name *is* the group
+  name (`raspi = [...]`, `raspo = [...]`). pyinfra loads `group_data/<group>.py`
+  for each, plus `group_data/all.py` for all hosts.
+- `group_data/<host>.py` declares `FEATURES` (a set) → `host.data.FEATURES`.
+  raspi lists every feature (deploy identical to pre-multi-host); raspo lists
+  `{base, camera, telemetry}`.
+- `group_data/features.py` holds the ordered `DEPLOY` manifest — `(task_module,
+  feature)` tuples preserving execution order (incl. the kanidm OIDC bootstrap
+  chain) — plus `FEATURE_DEPS` (hard deps, e.g. `apps`→`containers`) and
+  `validate()`. `deploy.py` includes a task only when its feature is in the
+  host's `FEATURES`, and **warn-skips** a task whose file doesn't exist yet (so a
+  declared-but-unbuilt feature is non-blocking).
+- Features: `base` (bootstrap, shell, hardening, network_restrict, secrets,
+  host_discover), `dns`, `vpn`, `proxy`, `containers` (podman), `storage`,
+  `backup`, `ddns`, `sso`, `monitoring`, `apps`, `chat`, `scribe`, `camera`
+  (Pi-camera enable + the `ocular` app), `telemetry` (off-hub beszel-agent).
+- `tasks/util.py` `feature(name)` lets a shared `base` task (e.g.
+  `tasks/secrets.py`) skip wiring tied to a feature this host lacks. Cross-cutting
+  base tasks gate their per-feature blocks with it — so a camera node writes no
+  app secrets, opens no app ports, etc.
+
+**Add a feature / host:** add the task(s) to `DEPLOY` with a feature tag (+ a
+`FEATURE_DEPS` entry if it has hard deps); add `FEATURES` to the host's
+`group_data/<host>.py`; gate any shared base-task blocks with `feature()`.
+
+### The camera node (raspo)
+
+A Pi 3 B+ with the official camera module. Runs `base` + `camera` + `telemetry`:
+- `tasks/camera.py` — apt `python3-picamera2` + Pillow + numpy + venv; enables
+  `camera_auto_detect`.
+- `tasks/ocular.py` — **native deploy** (not a container) of the `ocular`
+  camera-vision app from the sibling `../ocular` working tree: build the frontend
+  first (`cd ../ocular/frontend && yarn build`), then it ships `dist` + backend
+  src to `/opt/ocular`, makes a `--system-site-packages` venv (picamera2 from
+  apt, fastapi/uvicorn from pip), renders `/etc/ocular/config.json` from the
+  `OCULAR` dict, and runs a sandboxed systemd unit with camera `DeviceAllow` +
+  `video` group. raspi's Traefik proxies `ocular.{domain}` to raspo's LAN IP (the
+  off-host AI/COMFY pattern), SSO-gated, with a `/status` monitor router.
+- `tasks/beszel_agent.py` — native beszel-agent reporting to raspi's hub.
+
+Notes: a fresh camera-node bring-up needs passwordless sudo for the deploy user
+(as on raspi). The Pi 3 B+ thrashes on heavy apt installs (the libcamera pull can
+hang it — power-cycle + re-run is safe, deploys are idempotent).
 
 ## Service patterns
 
@@ -60,7 +123,7 @@ Use when: upstream provides a container image.
 
 The deploy is opinionated about which services are core and which are à la carte. Tier matters for *how* a service is wired:
 
-- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services.
+- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services. (Note: "required" means the *dict* is always present in the shared `all.py` so hard imports resolve on every host — it does **not** mean the service's task runs everywhere. Which tasks run is feature-gated per host: the raspo camera node runs none of DNS/proxy/SSO, only `base` + `camera` + `telemetry`.)
 - **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, `WGPORTAL`, `AUDIOBOOKSHELF`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
 - **Bundles & ripples** — a few optional dicts carry dependencies:
   - **Scribe stack** is all-or-none: comment `SCRIBE`, `SHIM`, `SHELF` together to retire the audiobook app. `SCRIBE` gates `tasks/scribe.py`; the ffmpeg "press" worker is off-Pi (Mac mini) so retiring it is just dropping the press URL.
@@ -96,7 +159,7 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `group_data/all.py` — append the service's name to `_SUBDOMAIN_NAMES` (if web-accessible). DNS wiring is derived from each dict's optional `"public": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/VPN clients). Wildcard TLS cert covers both. Be deliberate when adding `public: True` — every public subdomain is a fresh internet-facing attack surface.
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
-- [ ] `deploy.py` — add `local.include("tasks/{service}.py")`
+- [ ] `group_data/features.py` — add `("{service}", "{feature}")` to `DEPLOY` (this replaces the old `deploy.py` `local.include` line; deploy.py includes by feature). Tag it `apps` for a standard Pi-4 web service, or a new feature if it's a distinct role.
 - [ ] Bitwarden — create item in `raspi` folder before deploying
 
 ## Secrets handling — AI assistants read this
@@ -151,7 +214,7 @@ Examples:
 All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
 
 ### Network egress restrictions
-LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, mcp-chat, navidrome, ntfy, oauth2-proxy, syncthing, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
+LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, mcp-chat, navidrome, ntfy, oauth2-proxy, ocular, syncthing, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
 
 ### Network breach monitoring
 A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
@@ -238,9 +301,11 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 8092 | chat-mcp |
 | 8443 | Kanidm (HTTPS) |
 | 8096 | VuIO (DLNA) |
+| 8099 | ocular (camera node, raspo) |
 | 8888 | wg-portal |
 | 9090 | oauth2-proxy |
 | 13378 | Audiobookshelf |
+| 45876 | beszel-agent (off-hub, e.g. raspo) |
 | 51820 | WireGuard (UDP) |
 
 ## Memory budget (Pi 4, 1 GB)

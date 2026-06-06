@@ -1,6 +1,6 @@
 # raspi
 
-Automated setup for a Raspberry Pi 4 home server. Deploys and configures all services from scratch on a fresh Raspberry Pi OS Lite (64-bit) install.
+Automated setup for a small Raspberry Pi fleet. Deploys and configures everything from scratch on a fresh Raspberry Pi OS Lite (64-bit) install. The Pi 4 (`raspi`) runs the full home server below; a Pi 3 B+ (`raspo`) runs a small **camera node**. Which tasks run on which host is driven by a per-host feature set — see [CLAUDE.md](CLAUDE.md) → *Hosts & features*.
 
 ## What runs on it
 
@@ -30,8 +30,9 @@ Automated setup for a Raspberry Pi 4 home server. Deploys and configures all ser
 | [Kanidm](https://kanidm.com) | Identity management — SSO/OIDC provider for all services that support it |
 | [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Forward-auth gateway gating Pi-hole, Yarr, Navidrome and Syncthing behind Kanidm SSO |
 | [restic](https://restic.net) | Encrypted incremental backups of service state to the NAS, with one-shot restore on a fresh Pi |
+| [ocular](https://github.com/eetu/ocular) | Camera-vision app on the Pi 3 B+ camera node — pluggable detector pipeline (first detector counts cat-wheel revolutions) |
 
-Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Memos, Kanidm, Chat, chat-mcp, Scribe (with its shelf and shim sidecars), raspi-dashboard and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and the Beszel hub run as native binaries.
+Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Memos, Kanidm, Chat, chat-mcp, Scribe (with its shelf and shim sidecars), raspi-dashboard and the Beszel agent run as Podman containers (quadlets) — daemonless, managed by systemd. Traefik, wg-portal, oauth2-proxy, Yarr, VuIO, Syncthing and the Beszel hub run as native binaries. On the camera node, ocular and its Beszel agent run as native binaries too.
 
 ## Prerequisites
 
