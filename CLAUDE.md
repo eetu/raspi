@@ -64,8 +64,8 @@ host-aware.
   `validate()`. `deploy.py` includes a task only when its feature is in the
   host's `FEATURES`, and **warn-skips** a task whose file doesn't exist yet (so a
   declared-but-unbuilt feature is non-blocking).
-- Features: `base` (bootstrap, shell, hardening, network_restrict, secrets,
-  host_discover), `dns`, `vpn`, `proxy`, `containers` (podman), `storage`,
+- Features: `base` (bootstrap, shell, hardening, network_restrict,
+  network_monitor, secrets, host_discover), `dns`, `vpn`, `proxy`, `containers` (podman), `storage`,
   `backup`, `ddns`, `sso`, `monitoring`, `apps`, `chat`, `scribe`, `camera`
   (Pi-camera enable + the `ocular` app), `telemetry` (off-hub beszel-agent).
 - `tasks/util.py` `feature(name)` lets a shared `base` task (e.g.

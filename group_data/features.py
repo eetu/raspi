@@ -53,7 +53,10 @@ DEPLOY = [
     ("vuio", "apps"),
     ("beszel", "monitoring"),
     ("raspi_dashboard", "monitoring"),
-    ("network_monitor", "monitoring"),
+    # network_monitor pairs with network_restrict (both base): any host that
+    # blocks egress should also alert on BREACH log entries. It no-ops when NTFY
+    # is retired. raspo pushes to raspi's ntfy over the LAN (resolves via Pi-hole).
+    ("network_monitor", "base"),
     # Off-hub telemetry: report this host to raspi's beszel hub (native agent,
     # no podman). Distinct from the full `monitoring` bundle which runs the hub.
     ("beszel_agent", "telemetry"),
