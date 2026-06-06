@@ -7,6 +7,7 @@ from pyinfra.facts.server import Command, KernelVersion
 from pyinfra.operations import files, server, systemd
 
 from group_data.all import NETWORK, WIREGUARD
+from tasks.util import feature, optional
 
 
 def _kver_tuple(v: str) -> tuple[int, int, int]:
@@ -147,6 +148,20 @@ else:
 
 # --- ufw ---
 
+# Beszel hub: opened to the LAN only on hosts running the `monitoring` feature
+# (the hub binds 0.0.0.0 so off-host agents can connect). Other hosts run the
+# agent, which connects outbound and needs no inbound rule.
+_beszel = optional("BESZEL")
+_beszel_hub_rule = ""
+_beszel_hub_cmd = ""
+if feature("monitoring") and _beszel:
+    _bp = _beszel["port"]
+    _beszel_hub_rule = f"from {NETWORK['lan_cidr']} {_bp}tcp "
+    _beszel_hub_cmd = (
+        f"ufw allow from {NETWORK['lan_cidr']} to any port {_bp} proto tcp "
+        f"comment 'Beszel hub LAN (agents)'\n        "
+    )
+
 _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 22tcp "
     f"from {WIREGUARD['subnet']} 22tcp "
@@ -161,6 +176,7 @@ _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 21027udp "
     f"from {NETWORK['lan_cidr']} 22000tcp "
     f"from {NETWORK['lan_cidr']} 22000udp "
+    f"{_beszel_hub_rule}"
     f"route wg0"
 )
 
@@ -189,7 +205,7 @@ server.shell(
         ufw allow from {NETWORK["lan_cidr"]} to any port 21027 proto udp comment 'Syncthing discovery'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto tcp comment 'Syncthing sync TCP'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto udp comment 'Syncthing QUIC'
-        ufw route allow in on wg0 comment 'WireGuard forwarding'
+        {_beszel_hub_cmd}ufw route allow in on wg0 comment 'WireGuard forwarding'
         ufw --force enable
         echo "$WANT" > "$STAMP"
         """,

@@ -38,6 +38,17 @@ def optional(name: str):
     return getattr(_all, name, None)
 
 
+def feature(name: str) -> bool:
+    """True if the current host runs feature `name`.
+
+    Reads the host's FEATURES set (from group_data/<group>.py). Lets a task
+    that runs on every host (e.g. tasks/secrets.py, in the `base` bundle)
+    skip wiring tied to a feature this host doesn't have."""
+    from pyinfra import host
+
+    return name in (host.data.get("FEATURES") or set())
+
+
 def restart_if_changed(
     service: str,
     static_hash: str,

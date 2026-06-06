@@ -1,40 +1,25 @@
-from pyinfra import local
+from pathlib import Path
 
-local.include("tasks/bootstrap.py")
-local.include("tasks/shell.py")
-local.include("tasks/hardening.py")
-local.include("tasks/network_restrict.py")
-local.include("tasks/secrets.py")
-local.include("tasks/cloudflare_dns.py")
-local.include("tasks/unbound.py")
-local.include("tasks/pihole.py")
-local.include("tasks/wireguard.py")
-local.include("tasks/wg_portal.py")
-local.include("tasks/traefik.py")
-local.include("tasks/host_discover.py")
-local.include("tasks/cifs.py")
-local.include("tasks/restic.py")
-local.include("tasks/podman.py")
-local.include("tasks/halo.py")
-local.include("tasks/audiobookshelf.py")
-local.include("tasks/navidrome.py")
-local.include("tasks/ntfy.py")
-local.include("tasks/gatus.py")
-local.include("tasks/trivy.py")
-local.include("tasks/ddns.py")
-local.include("tasks/vaultwarden.py")
-local.include("tasks/kanidm.py")
-local.include("tasks/kanidm_oidc.py")
-local.include("tasks/oauth2_proxy.py")
-local.include("tasks/memos.py")
-local.include("tasks/chat.py")
-local.include("tasks/mcp_chat.py")
-local.include("tasks/shim.py")
-local.include("tasks/scribe.py")
-local.include("tasks/shelf.py")
-local.include("tasks/yarr.py")
-local.include("tasks/syncthing.py")
-local.include("tasks/vuio.py")
-local.include("tasks/beszel.py")
-local.include("tasks/raspi_dashboard.py")
-local.include("tasks/network_monitor.py")
+from pyinfra import host, local
+
+from group_data.features import DEPLOY, validate
+
+# Each host's FEATURES set (from group_data/<group>.py) selects which task
+# bundles run on it. raspi declares every feature, so its deploy is unchanged;
+# raspo (camera node) declares only {base, camera}. See group_data/features.py.
+_features = set(host.data.get("FEATURES") or ())
+validate(_features)
+
+_tasks_dir = Path(__file__).parent / "tasks"
+
+for _task, _feature in DEPLOY:
+    if _feature not in _features:
+        continue
+    # A feature may be declared before its task files exist (e.g. `camera`
+    # while ocular is still being built). Skip-with-warning rather than crash,
+    # so a half-built feature is non-blocking and auto-activates once its files
+    # land. Typos still surface here as a visible skip.
+    if not (_tasks_dir / f"{_task}.py").is_file():
+        print(f"[deploy] feature '{_feature}': tasks/{_task}.py not present yet — skipping")
+        continue
+    local.include(f"tasks/{_task}.py")

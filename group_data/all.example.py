@@ -445,7 +445,12 @@ VUIO = {
 }
 
 BESZEL = {
-    "host": "127.0.0.1",
+    "host": "127.0.0.1",  # loopback address local consumers use (traefik, dashboard, gatus)
+    # Address the hub binds to. 0.0.0.0 keeps loopback working for local
+    # consumers AND lets off-host agents (e.g. a camera node's beszel-agent)
+    # reach it over the LAN. The LAN port is opened by tasks/hardening.py ufw
+    # only on hosts running the `monitoring` feature.
+    "bind": "0.0.0.0",
     "port": 8091,  # hub web UI (8090 taken by ntfy)
     "version": "v0.18.7",
     "agent_image": "docker.io/henrygd/beszel-agent:0.18.7",  # Podman Quadlet
