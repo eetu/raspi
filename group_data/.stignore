@@ -1,0 +1,11 @@
+// Syncthing syncs ONLY all.py across machines — it is gitignored (machine-shared
+// config that references Bitwarden field names, no secret values). Everything
+// else in group_data/ (features.py, raspi.py, raspo.py, all.example.py,
+// __pycache__) is tracked in git and distributed that way, so Syncthing must
+// stay out of git's path for those. First match wins, top-down: keep all.py,
+// ignore the rest.
+//
+// This file is committed to the repo so every machine gets the same rules;
+// Syncthing never syncs .stignore itself.
+!all.py
+*
