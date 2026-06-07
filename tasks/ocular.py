@@ -1,14 +1,24 @@
 """ocular: native deploy of the camera-vision app to the camera node (raspo).
 
 `camera` feature. v1 is a native systemd service (not a container): picamera2
-reaches /dev/* directly, sidestepping libcamera-in-container passthrough. The
-app source is shipped from the sibling ../ocular working tree — build the
-frontend first (`cd ../ocular/frontend && yarn build`); this task raises if
-dist/ is missing rather than ship a backend with no UI.
+reaches /dev/* directly, sidestepping libcamera-in-container passthrough.
+
+The app is shipped as the self-contained release tarball published by ocular's
+Release workflow (backend src + built SPA + VERSION), NOT from the local working
+tree — so the deploy can never silently ship a stale `frontend/dist`. The Pi
+pulls it directly: egress is restricted per-service (cgroup) in
+tasks/network_restrict.py, not host-wide, so the deploy (running as root, not in
+ocular.service's cgroup) reaches github.com fine. Channels:
+  * "main"   → the rolling prerelease, refreshed on every push to main
+  * "vX.Y.Z" → a pinned tag release
+Set OCULAR["version"] (default "main"). The rolling `main` tag's *name* never
+changes, so the published .sha256 — not a version string — gates re-download
+and restart.
 
 Layout on raspo:
-  /opt/ocular/src    backend package (run via PYTHONPATH)
-  /opt/ocular/dist   built Svelte SPA
+  /opt/ocular/src    backend package (run via PYTHONPATH)   — from tarball
+  /opt/ocular/dist   built Svelte SPA                        — from tarball
+  /opt/ocular/VERSION  version + commit of the live build    — from tarball
   /opt/ocular/.venv  venv (--system-site-packages → picamera2/numpy/Pillow from
                      apt; fastapi/uvicorn from pip)
   /etc/ocular/config.json   rendered from the OCULAR dict (camera + detectors)
@@ -21,7 +31,6 @@ port is opened to the LAN by tasks/hardening.py only on the camera host.
 import hashlib
 import io
 import json
-from pathlib import Path
 
 from pyinfra.operations import files, server, systemd
 
@@ -32,14 +41,8 @@ OCULAR = optional("OCULAR")
 # Runtime deps installed into the venv (system site-packages provides the rest).
 _VENV_DEPS = "'fastapi>=0.136' 'uvicorn>=0.47'"
 
-
-def _tree_hash(root: Path) -> str:
-    h = hashlib.sha256()
-    for p in sorted(root.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(root).as_posix().encode())
-            h.update(p.read_bytes())
-    return h.hexdigest()
+# Public repo publishing the release tarball (see ocular's .github/release.yaml).
+_REPO = "eetu/ocular"
 
 
 if OCULAR is None:
@@ -51,15 +54,7 @@ if OCULAR is None:
         daemon_reload=True,
     )
 else:
-    _ocular_repo = Path(__file__).resolve().parents[2] / "ocular"
-    _src = _ocular_repo / "backend" / "src"
-    _dist = _ocular_repo / "frontend" / "dist"
-
-    if not (_dist / "index.html").is_file():
-        raise RuntimeError(
-            f"ocular dist not built at {_dist} — run `cd {_ocular_repo}/frontend && yarn build` first"
-        )
-
+    _channel = OCULAR.get("version", "main")
     _config = {"camera": OCULAR["camera"], "detectors": {"revolution": OCULAR["revolution"]}}
     _config_json = json.dumps(_config, indent=2)
     _deps_hash = hashlib.sha256(_VENV_DEPS.encode()).hexdigest()
@@ -74,22 +69,32 @@ else:
             present=True,
         )
 
-    files.sync(
-        name="Sync ocular backend src",
-        src=str(_src),
-        dest="/opt/ocular/src",
-        delete=True,
-        user="root",
-        group="root",
-    )
-
-    files.sync(
-        name="Sync ocular SPA dist",
-        src=str(_dist),
-        dest="/opt/ocular/dist",
-        delete=True,
-        user="root",
-        group="root",
+    # Pull the release tarball (src + dist + VERSION) onto the Pi. The published
+    # .sha256 gates the work: re-download + extract only when it differs from
+    # what's on disk, and record the new hash to /opt/ocular/.release-sha — which
+    # the restart step below fingerprints, so a fresh build triggers a restart.
+    # `set -e` + `sha256sum -c` fail the deploy closed on a corrupt/MITM'd asset
+    # rather than ship it. `-f` makes curl exit non-zero on an HTTP error (e.g. a
+    # missing tag) instead of saving the error page as the tarball.
+    _asset = f"ocular-{_channel}.tar.gz"
+    _base = f"https://github.com/{_REPO}/releases/download/{_channel}"
+    server.shell(
+        name=f"Pull ocular release ({_channel})",
+        commands=[
+            f"""
+            set -eu
+            STAMP=/opt/ocular/.release-sha
+            NEW=$(curl -fsSL "{_base}/{_asset}.sha256")
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "$NEW" ]; then
+              curl -fsSL "{_base}/{_asset}" -o /tmp/ocular.tar.gz
+              echo "$NEW  /tmp/ocular.tar.gz" | sha256sum -c -
+              rm -rf /opt/ocular/src /opt/ocular/dist /opt/ocular/VERSION
+              tar -xzf /tmp/ocular.tar.gz -C /opt/ocular
+              rm -f /tmp/ocular.tar.gz
+              echo "$NEW" > "$STAMP"
+            fi
+            """,
+        ],
     )
 
     files.put(
@@ -169,10 +174,11 @@ WantedBy=multi-user.target
         mode="644",
     )
 
-    # Restart on any change to the unit, config, backend src, or built dist.
-    _static_hash = hashlib.sha256(
-        (service_unit + _config_json + _tree_hash(_src) + _tree_hash(_dist)).encode()
-    ).hexdigest()
+    # Restart when the unit or config (known at plan time) changes, OR when the
+    # pulled release changes — the latter is only known at run time, so it rides
+    # in as an env_file: restart_if_changed folds /opt/ocular/.release-sha's
+    # content into the stamp, and the pull step above rewrites it on a fresh build.
+    _static_hash = hashlib.sha256((service_unit + _config_json).encode()).hexdigest()
 
     systemd.service(
         name="Enable ocular",
@@ -183,6 +189,8 @@ WantedBy=multi-user.target
     )
 
     server.shell(
-        name="Restart ocular if code/config/unit changed",
-        commands=[restart_if_changed("ocular", _static_hash)],
+        name="Restart ocular if release/config/unit changed",
+        commands=[
+            restart_if_changed("ocular", _static_hash, env_files=["/opt/ocular/.release-sha"])
+        ],
     )

@@ -492,6 +492,9 @@ OCULAR = {
     "host": "192.168.x.z",  # camera node LAN IP
     "port": 8099,
     "url_prefix": "ocular",
+    # Release pulled onto the Pi: "main" (rolling prerelease, refreshed on every
+    # push to main) or a pinned tag like "v1.2.0". Default "main".
+    "version": "main",
     # rotation: 0 for an upright mount; 90/270 sideways; 180 upside-down. Live-
     # tunable from the UI, so just confirm from the feed.
     "camera": {"width": 640, "height": 480, "fps": 15, "rotation": 0},
