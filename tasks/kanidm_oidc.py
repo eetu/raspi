@@ -126,6 +126,24 @@ except Exception as e:
 
 print("kanidm: idm_admin authenticated")
 
+# --- Account policy: session (+ OAuth2 refresh-token) lifetime ---
+# All persons are members of idm_all_persons (built-in, already carries the
+# account_policy class). authsession_expiry bounds the login session and thus
+# the OAuth2 refresh-token lifetime — access tokens stay short (~15 min), the
+# refresh rides the session. LAN-only home IdP, so a long session is a
+# convenience win, not a meaningful risk. Idempotent: skip if already set.
+try:
+    g = api("GET", "/v1/group/idm_all_persons", token=token)
+    cur = (g.get("attrs", {{}}).get("authsession_expiry") or [None])[0]
+    want = "{KANIDM["auth_session_expiry"]}"
+    if cur == want:
+        print(f"kanidm: authsession_expiry already {{want}}s")
+    else:
+        api("PUT", "/v1/group/idm_all_persons/_attr/authsession_expiry", [want], token=token)
+        print(f"kanidm: authsession_expiry set to {{want}}s")
+except Exception as e:
+    print(f"kanidm: failed to set authsession_expiry: {{e}}", file=sys.stderr)
+
 # --- Create persons ---
 persons = json.loads({_persons_json!r})
 force_reset = set(json.loads({_force_reset_json!r}))

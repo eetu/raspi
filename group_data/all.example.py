@@ -532,6 +532,11 @@ KANIDM = {
     # confirmed working; 1.9.2 is the long-standing known-good.
     "image": "docker.io/kanidm/server:1.9.2",
     "resolve_latest": False,
+    # Login-session lifetime (seconds) for home users, set as account policy on
+    # idm_all_persons. Bounds the OAuth2 refresh-token lifetime too (access
+    # tokens stay short ~15 min; refresh rides the session). Default kanidm
+    # session is only 8 h. 2592000 = 30 days; raise for a trusted LAN-only IdP.
+    "auth_session_expiry": 2592000,
 }
 
 OAUTH2_PROXY = {
