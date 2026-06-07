@@ -492,12 +492,18 @@ OCULAR = {
     "host": "192.168.x.z",  # camera node LAN IP
     "port": 8099,
     "url_prefix": "ocular",
+    # Rendered into /etc/ocular/config.json as the BASE layer (the app reads it,
+    # never writes it). UI tweaks persist as overrides in the SQLite store
+    # (/var/lib/ocular), survive a redeploy, and win over the values here — so
+    # once a key is tuned in the UI, editing it here won't change it. These are
+    # seeds/defaults.
     # rotation: 0 for an upright mount; 90/270 sideways; 180 upside-down. Live-
     # tunable from the UI, so just confirm from the feed.
     "camera": {"width": 640, "height": 480, "fps": 15, "rotation": 0},
     "revolution": {
         "roi": [280, 200, 80, 80],  # marker region in processing px — tune live
         "threshold": 60,
+        "auto_threshold_max": 60,  # ceiling on auto (Otsu) — stops a busy scene over-counting
         "debounce_frames": 3,
         "wheel_circumference_m": 0.0,  # set once measured → enables distance
         "marker_is_dark": True,

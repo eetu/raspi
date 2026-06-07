@@ -13,8 +13,12 @@ Layout on raspo:
   /opt/ocular/dist   built Svelte SPA, from the tarball
   /opt/ocular/.venv  venv (--system-site-packages → picamera2/numpy/Pillow from
                      apt; fastapi/uvicorn from pip)
-  /etc/ocular/config.json   rendered from the OCULAR dict (camera + detectors)
-  /var/lib/ocular    state (revolution history DB — ocular.db)
+  /etc/ocular/config.json   rendered from the OCULAR dict (camera + detectors).
+                     The BASE config layer — the app reads it, never writes it.
+  /var/lib/ocular    state (ocular.db): revolution history AND the UI config
+                     overrides (meta.config_overrides). Never written by the
+                     deploy, so UI tweaks survive a redeploy and win over the
+                     base config.json above.
 
 Egress: "ocular" is in tasks/network_restrict.py RESTRICTED (LAN-only). The hub
 port is opened to the LAN by tasks/hardening.py only on the camera host.
