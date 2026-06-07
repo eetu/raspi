@@ -12,7 +12,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, WIREGUARD
 from tasks.util import optional, restart_if_changed
 
@@ -53,11 +53,11 @@ else:
 
     # --- Config ---
 
-    creds = bw.wg_portal_creds()
+    creds = vault.wg_portal_creds()
     # OIDC is optional — wg-portal deploys without SSO if not in KANIDM_OIDC_CLIENTS
     # or until Kanidm has generated the client secret on a previous deploy.
     _oidc_client = KANIDM_OIDC_CLIENTS.get("wgportal")
-    _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+    _oidc_secret = vault.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
     config_yaml = f"""core:
   admin_user:                    "{creds["username"]}"

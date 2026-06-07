@@ -9,9 +9,9 @@ import json
 
 from pyinfra.operations import files, systemd
 
-import vault as bw
+import vault
 
-_dh = bw.dockerhub_creds()
+_dh = vault.dockerhub_creds()
 _auth_token = base64.b64encode(f"{_dh['username']}:{_dh['password']}".encode()).decode()
 _auth_json = json.dumps({"auths": {"docker.io": {"auth": _auth_token}}}, indent=2)
 

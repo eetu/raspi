@@ -12,7 +12,7 @@ import io
 
 from pyinfra.operations import files
 
-import vault as bw
+import vault
 from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETWORK
 from tasks.util import feature, optional
 
@@ -45,13 +45,13 @@ def _put_secret(name, content, dest, mode="600", group="root"):
 
 if feature("storage"):
     for _name in CIFS:
-        _put_secret(f"cifs-{_name}", bw.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
+        _put_secret(f"cifs-{_name}", vault.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
 
 # --- Cloudflare API token — used by traefik's DNS-01 challenge (`proxy`) and
 # the DNS record management in tasks/cloudflare_dns.py (`dns`). ---
 
 if feature("proxy") or feature("dns"):
-    cf = bw.cloudflare()
+    cf = vault.cloudflare()
     _put_secret(
         "cloudflare.env",
         f"CF_DNS_API_TOKEN={cf['token']}\nzone_id={cf['zone_id']}\n",
@@ -65,12 +65,12 @@ if feature("proxy") or feature("dns"):
 
 if feature("sso"):
     _op_oidc = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-    _op_client_secret = bw.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
+    _op_client_secret = vault.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
     if _op_client_secret:
         _put_secret(
             "oauth2-proxy.env",
             f"OAUTH2_PROXY_CLIENT_SECRET={_op_client_secret}\n"
-            f"OAUTH2_PROXY_COOKIE_SECRET={bw.oauth2_proxy_cookie_secret()}\n",
+            f"OAUTH2_PROXY_COOKIE_SECRET={vault.oauth2_proxy_cookie_secret()}\n",
             "/etc/secrets/oauth2-proxy.env",
         )
 
@@ -78,7 +78,7 @@ if feature("sso"):
 
 if feature("apps") and HALO:
     _halo_secret_lines = [
-        f"{var}={bw.bw_field('halo', field)}" for var, field in HALO["secret_env"].items()
+        f"{var}={vault.secret_field('halo', field)}" for var, field in HALO["secret_env"].items()
     ]
     _put_secret("halo.env", "\n".join(_halo_secret_lines) + "\n", "/etc/secrets/halo.env")
 
@@ -89,20 +89,20 @@ if feature("apps") and HALO:
 
 if feature("apps") and VAULTWARDEN:
     _vw_lines = [
-        f"ADMIN_TOKEN={bw.vaultwarden_admin_token_hash()}",
+        f"ADMIN_TOKEN={vault.vaultwarden_admin_token_hash()}",
         "SIGNUPS_ALLOWED=true",
         "SMTP_HOST=smtp.gmail.com",
         "SMTP_PORT=587",
         "SMTP_SECURITY=starttls",
-        f"SMTP_USERNAME={bw.vaultwarden_smtp_email()}",
-        f"SMTP_FROM={bw.vaultwarden_smtp_email()}",
-        f"SMTP_PASSWORD={bw.vaultwarden_smtp_password()}",
+        f"SMTP_USERNAME={vault.vaultwarden_smtp_email()}",
+        f"SMTP_FROM={vault.vaultwarden_smtp_email()}",
+        f"SMTP_PASSWORD={vault.vaultwarden_smtp_password()}",
     ]
 
     # OIDC is optional — Vaultwarden runs without SSO if not in KANIDM_OIDC_CLIENTS
     # or until Kanidm has generated the client secret on a previous deploy.
     _vw_oidc = KANIDM_OIDC_CLIENTS.get("vaultwarden")
-    _vw_oidc_secret = bw.kanidm_oidc_secret(_vw_oidc["secret_field"]) if _vw_oidc else ""
+    _vw_oidc_secret = vault.kanidm_oidc_secret(_vw_oidc["secret_field"]) if _vw_oidc else ""
     if _vw_oidc_secret:
         _vw_lines.extend(
             [
@@ -127,10 +127,12 @@ if feature("apps") and VAULTWARDEN:
 # registration that follows.
 
 if feature("apps") and MEMOS:
-    _memos_creds = bw.memos_creds()
+    _memos_creds = vault.memos_creds()
     _memos_pw = _memos_creds["password"].replace("'", "'\\''")
     _memos_oidc = KANIDM_OIDC_CLIENTS.get("memos")
-    _memos_oidc_secret = bw.kanidm_oidc_secret(_memos_oidc["secret_field"]) if _memos_oidc else ""
+    _memos_oidc_secret = (
+        vault.kanidm_oidc_secret(_memos_oidc["secret_field"]) if _memos_oidc else ""
+    )
     _memos_lines = [
         f"MEMOS_USERNAME={_memos_creds['username']}",
         f"MEMOS_PASSWORD='{_memos_pw}'",
@@ -145,15 +147,15 @@ if feature("apps") and MEMOS:
 # when either side is deployed.
 
 if feature("chat") and (CHAT or MCP_CHAT):
-    _chat_mcp_api_key = bw.chat_mcp_api_key()
+    _chat_mcp_api_key = vault.chat_mcp_api_key()
 
 if feature("chat") and CHAT:
     # SESSION_KEY is auto-generated on first deploy. OIDC vars are written only
     # once Kanidm has produced the client secret on a previous deploy.
     _chat_oidc = KANIDM_OIDC_CLIENTS.get("chat")
-    _chat_oidc_secret = bw.kanidm_oidc_secret(_chat_oidc["secret_field"]) if _chat_oidc else ""
+    _chat_oidc_secret = vault.kanidm_oidc_secret(_chat_oidc["secret_field"]) if _chat_oidc else ""
     _chat_lines = [
-        f"SESSION_KEY={bw.chat_session_key()}",
+        f"SESSION_KEY={vault.chat_session_key()}",
         f"CHAT_MCP_API_KEY={_chat_mcp_api_key}",
     ]
     if _chat_oidc_secret:
@@ -172,7 +174,7 @@ if feature("chat") and MCP_CHAT:
     # clients with CHAT_MCP_SERVER_KEY. Both are auto-generated in BW.
     _put_secret(
         "mcp-chat.env",
-        f"CHAT_MCP_API_KEY={_chat_mcp_api_key}\nCHAT_MCP_SERVER_KEY={bw.chat_mcp_server_key()}\n",
+        f"CHAT_MCP_API_KEY={_chat_mcp_api_key}\nCHAT_MCP_SERVER_KEY={vault.chat_mcp_server_key()}\n",
         "/etc/secrets/mcp-chat.env",
     )
 
@@ -184,15 +186,15 @@ if feature("chat") and MCP_CHAT:
 if feature("scribe") and SCRIBE:
     _scribe_oidc = KANIDM_OIDC_CLIENTS.get("scribe")
     _scribe_oidc_secret = (
-        bw.kanidm_oidc_secret(_scribe_oidc["secret_field"]) if _scribe_oidc else ""
+        vault.kanidm_oidc_secret(_scribe_oidc["secret_field"]) if _scribe_oidc else ""
     )
     _scribe_lines = [
-        f"SESSION_KEY={bw.scribe_session_key()}",
-        f"SCRIBE_PRESS_TOKEN={bw.scribe_press_token()}",
-        f"ABS_TOKEN={bw.scribe_abs_token()}",
+        f"SESSION_KEY={vault.scribe_session_key()}",
+        f"SCRIBE_PRESS_TOKEN={vault.scribe_press_token()}",
+        f"ABS_TOKEN={vault.scribe_abs_token()}",
         # Same value as /etc/secrets/shelf.env — paired so scribe's UI
         # can surface the key without an extra service round-trip.
-        f"SCRIBE_SHELF_API_KEY={bw.shelf_api_key()}",
+        f"SCRIBE_SHELF_API_KEY={vault.shelf_api_key()}",
     ]
     if _scribe_oidc_secret:
         _scribe_lines.extend(
@@ -212,7 +214,7 @@ if feature("scribe") and SCRIBE:
 if feature("scribe") and SHIM:
     _put_secret(
         "shim.env",
-        f"SHIM_PASSPHRASE={bw.shim_passphrase()}\n",
+        f"SHIM_PASSPHRASE={vault.shim_passphrase()}\n",
         "/etc/secrets/shim.env",
     )
 
@@ -225,7 +227,7 @@ if feature("scribe") and SHIM:
 if feature("scribe") and SHELF:
     _put_secret(
         "shelf.env",
-        f"SHELF_API_KEY={bw.shelf_api_key()}\n",
+        f"SHELF_API_KEY={vault.shelf_api_key()}\n",
         "/etc/secrets/shelf.env",
     )
 
@@ -238,7 +240,7 @@ if feature("monitoring") and RASPI_DASHBOARD:
     _dash_email = RASPI_DASHBOARD["beszel_user"]
     _put_secret(
         "raspi-dashboard.env",
-        f"BESZEL_USER={_dash_email}\nBESZEL_PASSWORD={bw.beszel_user_password(_dash_email)}\n",
+        f"BESZEL_USER={_dash_email}\nBESZEL_PASSWORD={vault.beszel_user_password(_dash_email)}\n",
         "/etc/secrets/raspi-dashboard.env",
     )
 
@@ -246,7 +248,7 @@ if feature("monitoring") and RASPI_DASHBOARD:
 # Sourced by /usr/local/sbin/raspi-backup; password may contain special chars
 # so single-quote-escape it for `source` to handle correctly.
 if feature("backup") and RESTIC is not None and CIFS.get("backups"):
-    _restic_pw = bw.restic_password().replace("'", "'\\''")
+    _restic_pw = vault.restic_password().replace("'", "'\\''")
     _restic_repo = f"{CIFS['backups']['mountpoint']}/raspi-restic"
     _put_secret(
         "restic.env",

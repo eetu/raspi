@@ -9,7 +9,7 @@ import urllib.request
 from pyinfra import logger
 from pyinfra.operations import python
 
-import vault as bw
+import vault
 from group_data.all import NETWORK, PUBLIC_SUBDOMAINS, WIREGUARD
 from tasks.util import optional
 
@@ -18,8 +18,8 @@ EMAIL = optional("EMAIL")
 
 
 def _cf(method, path, data=None):
-    token = bw.cloudflare()["token"]
-    zone_id = bw.cloudflare()["zone_id"]
+    token = vault.cloudflare()["token"]
+    zone_id = vault.cloudflare()["zone_id"]
     url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}{path}"
     body = json.dumps(data).encode() if data else None
     req = urllib.request.Request(

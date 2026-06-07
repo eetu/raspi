@@ -1,394 +1,451 @@
 """
-Bitwarden CLI helpers. Requires BW_SESSION env var to be set:
-    set -x BW_SESSION (bw unlock --raw)
+Secret access for the deploy — backend-agnostic.
 
-Item structure in the 'raspi' folder:
-  cloudflare        login  password=api_token  fields: zone_id
-  cifs              login  (unused)            fields: {share}_username, {share}_password (hidden) per CIFS key
+The deploy never hardwires a secret manager. A thin ``Backend`` (5 primitives:
+read_login / read_field / read_ssh_key / write_field / item_exists) sits under a
+stable set of public helpers (``cloudflare()``, ``restic_password()``, …) that
+the task files call. Swapping vendors is a backend swap, not a task rewrite.
+
+Selection (env):
+  SECRET_BACKEND   op | bw          (default: op)
+  OP_VAULT         vault/folder name (default: raspi)
+
+Auth:
+  op (default) — 1Password CLI via the desktop-app integration. The first `op`
+    call in a deploy triggers Touch ID; the unlock is cached (~10 min) for the
+    rest. No session env var. (Enable: 1Password → Settings → Developer →
+    "Integrate with 1Password CLI". `op signin` if not using the desktop app.)
+  bw (legacy) — Bitwarden CLI. Set BW_SESSION=(bw unlock --raw) before deploy.
+
+Item / field map (one vault/folder, items named as below):
+  cloudflare        login  password=api_token  field: zone_id
+  cifs              login  (unused)            fields: {share}_username, {share}_password per CIFS key
                                                (e.g. backups_username/password for the restic repo share)
-  audiobookshelf    login  username/password   fields: api_key (hidden)
-  wireguard-portal  login  username/password   fields: api_token
-  wireguard-server-key     (no login)          fields: private_key (hidden), public_key
-  asus-router              SSH key item        (uses Bitwarden SSH key type)
-  halo              login  (unused)            fields: one hidden field per HALO["secret_env"]
-                                               value in group_data/all.py (e.g. tomorrow_io_api_key,
-                                               solis_key_id, solis_key_secret, hue_bridge_user)
+  audiobookshelf    login  username/password   field: api_key (read+write)
+  wireguard-portal  login  username/password   field: api_token
+  wireguard-server-key     secure note         fields: private_key, public_key (read+write)
+  asus-router              SSH key item         private key (OpenSSH) + public key
+  halo                     secure note         fields: one per HALO["secret_env"] in group_data/all.py
+                                               (tomorrow_io_api_key, solis_key_id, solis_key_secret,
+                                               hue_bridge_user)
   pihole            login  password=admin_password
-  dockerhub         login  username/password   (personal access token from hub.docker.com/settings/security)
-  vaultwarden       login  password=admin_password (plain text, for logging in)
-                           fields: admin_token (hidden, argon2 hash; generate with:
+  dockerhub         login  username/password   (PAT from hub.docker.com/settings/security)
+  vaultwarden       login  password=admin_password (plain, for logging in)
+                           fields: admin_token (argon2 hash; generate with:
                              docker run --rm -it vaultwarden/server /vaultwarden hash --preset owasp)
-                                   smtp_email   (Gmail address used for SMTP_USERNAME and SMTP_FROM)
-                                   smtp_password (hidden, Gmail app password)
-  yarr              login  username/password   (use alphanumeric-only password — no colons)
-  navidrome         login  username/password   (only required when oauth2-proxy is
-                                                NOT configured — used to bootstrap
-                                                an admin user for native Subsonic auth)
-  memos             login  username/password   (bootstrap HOST/admin user — first POST
-                                                /api/v1/users assigns HOST role; kept as
-                                                fallback for non-SSO admin login)
+                                   smtp_email   (Gmail address — SMTP_USERNAME + SMTP_FROM)
+                                   smtp_password (Gmail app password)
+  yarr              login  username/password   (alphanumeric-only password — no colons)
+  navidrome         login  username/password   (only when oauth2-proxy is NOT configured —
+                                                bootstraps an admin for native Subsonic auth)
+  memos             login  username/password   (bootstrap HOST/admin — first POST /api/v1/users
+                                                assigns HOST role; non-SSO admin fallback)
   syncthing         login  username/password   (web UI credentials)
-  beszel            login  email/password       (email stored as username; used to bootstrap
-                                               hub admin + superuser). USER_EMAIL/PASSWORD seed
-                                               the hub UI user on first boot (write-once);
-                                               `beszel superuser upsert` runs every deploy to
-                                               keep the PocketBase admin panel login in sync.
-                                               The agent universal token is fetched from the hub
-                                               API at deploy time — no Bitwarden field needed.
-  kanidm            login  (unused)             fields: admin_password (hidden, generated by
-                                                 `kanidmd recover-account admin` on first deploy);
-                                               idm_admin_password (hidden, generated by
-                                                 `kanidmd recover-account idm_admin`);
-                                               one `{client}_client_secret` (hidden) per OIDC client
-                                                 (generated by Kanidm, read from API, saved to BW);
-                                               one `{username}_reset_token` (hidden) per person
-                                                 (credential reset URL, saved on first deploy)
-  oauth2-proxy      login  (unused)             fields: cookie_secret (hidden, base64-encoded 32
-                                                 random bytes; generated locally on first deploy
-                                                 and persisted so sessions survive restarts)
-  chat              login  (unused)             fields: session_key (hidden, 64-byte hex; generated
-                                                 locally on first deploy and persisted so SSE/auth
-                                                 sessions survive restarts);
-                                               mcp_api_key (hidden, 32-byte hex; auto-generated;
-                                                 gates the mcp-chat → chat-backend hop on /api/v1/*);
-                                               mcp_server_key (hidden, 32-byte hex; auto-generated;
-                                                 gates inbound Bearer auth on chat-mcp's /mcp)
-  scribe            login  (unused)             fields: session_key (hidden, 64-byte hex; auto-
-                                                 generated; signs scribe session cookies);
-                                               press_token (hidden, hand-pasted; must match
-                                                 `mini/scribe-press` item's `api_key` field);
-                                               abs_token (hidden, hand-issued ABS API token used
-                                                 to POST /api/libraries/{id}/scan);
-                                               shim_passphrase (hidden, 48-byte hex; auto-
-                                                 generated; encrypts shim's on-disk Audible auth);
-                                               shelf_api_key (hidden, 32-byte hex; auto-
-                                                 generated; bearer for scribe-shelf — shared with
-                                                 /etc/secrets/shelf.env via tasks/secrets.py)
-  restic            login  password=repo_password (used to encrypt the restic backup repo;
-                                                  treat as load-bearing — losing this means
-                                                  losing access to all snapshots)
+  beszel            login  email/password       (email in username; bootstraps hub admin + superuser).
+                           fields: user_pw_<email> — auto-generated per managed user
+                                   (BESZEL["users"]). NOTE: 1Password splits the email's dot,
+                                   so this lands as section `user_pw_<local@host>` / field `com`;
+                                   read_field matches the reconstructed `section.label` form.
+  kanidm            login  (unused)             fields: admin_password, idm_admin_password
+                                                 (generated by `kanidmd recover-account`);
+                                               {client}_client_secret per OIDC client (from Kanidm API);
+                                               {username}_reset_token per person (first deploy)
+  oauth2-proxy      login  (unused)             field: cookie_secret (base64 32 random bytes;
+                                                 generated locally on first deploy, persisted)
+  chat              login  (unused)             fields: session_key (64-byte hex), mcp_api_key (32),
+                                               mcp_server_key (32) — all auto-generated, persisted
+  scribe            login  (unused)             fields: session_key (64-byte hex, auto),
+                                               press_token (hand-pasted; must match the mini's
+                                                 `mini/scribe-press` api_key field),
+                                               abs_token (hand-issued ABS API token),
+                                               shim_passphrase (48-byte hex, auto),
+                                               shelf_api_key (32-byte hex, auto — shared with shelf.env)
+  restic            login  password=repo_password (encrypts the restic repo — load-bearing,
+                                                  losing it loses all snapshots)
 """
 
 import base64
-import functools
 import json
+import os
 import secrets
 import subprocess
+from typing import Protocol
 
 
-def _bw(*args):
-    result = subprocess.run(
-        ["bw"] + list(args),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout.strip()
+class Backend(Protocol):
+    """Vendor-neutral secret store. All reads return "" for a missing field so
+    optional/first-deploy paths stay branch-free."""
+
+    def read_login(self, item: str) -> dict: ...
+    def read_field(self, item: str, field: str) -> str: ...
+    def read_ssh_key(self, item: str) -> dict: ...
+    def write_field(self, item: str, field: str, value: str, concealed: bool = True) -> None: ...
+    def item_exists(self, item: str) -> bool: ...
 
 
-@functools.cache
-def _folder_id():
-    folders = json.loads(_bw("list", "folders"))
-    match = next((f for f in folders if f["name"] == "raspi"), None)
-    if not match:
-        raise RuntimeError(
-            "Bitwarden folder 'raspi' not found.\n"
-            'Run: bw create folder (echo \'{"name":"raspi"}\' | bw encode)'
+# --------------------------------------------------------------------------- #
+# 1Password backend (default)
+# --------------------------------------------------------------------------- #
+
+
+class OpBackend:
+    """1Password CLI. Reads parse `op item get --format json` (robust to
+    sectioned fields, unlike `op read op://…`); the SSH private key is the one
+    value `op read` must fetch (the JSON value is empty for SSHKEY fields).
+    Writes use `op item edit item 'label[password|text]=value'`."""
+
+    def __init__(self, vault: str):
+        self.vault = vault
+        self._cache: dict[str, dict] = {}
+
+    def _op(self, *args: str) -> str:
+        return subprocess.run(
+            ["op", *args, "--vault", self.vault],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def _item(self, name: str) -> dict:
+        if name not in self._cache:
+            self._cache[name] = json.loads(self._op("item", "get", name, "--format", "json"))
+        return self._cache[name]
+
+    def _field_map(self, name: str) -> dict:
+        """label -> value for flat fields; for sectioned fields the key is the
+        reconstructed `section.label` (recovers names 1Password split on a dot,
+        e.g. the beszel `user_pw_<email>` fields)."""
+        out: dict[str, str] = {}
+        for f in self._item(name).get("fields", []):
+            val = f.get("value")
+            if val is None:
+                continue
+            label = f.get("label", "")
+            section = (f.get("section") or {}).get("label")
+            out[f"{section}.{label}" if section else label] = val
+        return out
+
+    def read_login(self, item: str) -> dict:
+        login = {"username": "", "password": ""}
+        for f in self._item(item).get("fields", []):
+            if f.get("purpose") == "USERNAME":
+                login["username"] = f.get("value") or ""
+            elif f.get("purpose") == "PASSWORD":
+                login["password"] = f.get("value") or ""
+        return login
+
+    def read_field(self, item: str, field: str) -> str:
+        return self._field_map(item).get(field, "") or ""
+
+    def read_ssh_key(self, item: str) -> dict:
+        # `op read` takes the vault in the op:// URI, not a --vault flag.
+        private = subprocess.run(
+            ["op", "read", f"op://{self.vault}/{item}/private key?ssh-format=openssh"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return {"private_key": private, "public_key": self.read_field(item, "public key")}
+
+    def write_field(self, item: str, field: str, value: str, concealed: bool = True) -> None:
+        # NOTE: the value is an argv element (briefly visible in the local
+        # process table) — acceptable for a single-user control host; it never
+        # enters the deploy transcript. `password` -> concealed field, `text` -> plain.
+        self._op("item", "edit", item, f"{field}[{'password' if concealed else 'text'}]={value}")
+        self._cache.pop(item, None)
+
+    def item_exists(self, item: str) -> bool:
+        try:
+            self._item(item)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+
+# --------------------------------------------------------------------------- #
+# Bitwarden backend (legacy fallback — SECRET_BACKEND=bw)
+# --------------------------------------------------------------------------- #
+
+
+class BwBackend:
+    """Bitwarden CLI. Requires BW_SESSION. Kept as a working fallback during the
+    1Password migration; revisit if it starts to drift from OpBackend."""
+
+    def __init__(self, folder: str):
+        self.folder = folder
+        self._folder_id_cache: str | None = None
+        self._item_cache: dict[str, dict] = {}
+
+    def _bw(self, *args: str) -> str:
+        return subprocess.run(
+            ["bw", *args], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    def _folder_id(self) -> str:
+        if self._folder_id_cache is None:
+            folders = json.loads(self._bw("list", "folders"))
+            match = next((f for f in folders if f["name"] == self.folder), None)
+            if not match:
+                raise RuntimeError(
+                    f"Bitwarden folder '{self.folder}' not found.\n"
+                    'Run: bw create folder (echo \'{"name":"raspi"}\' | bw encode)'
+                )
+            self._folder_id_cache = match["id"]
+        return self._folder_id_cache
+
+    def _item(self, name: str) -> dict:
+        if name not in self._item_cache:
+            items = json.loads(
+                self._bw("list", "items", "--search", name, "--folderid", self._folder_id())
+            )
+            matches = [i for i in items if i["name"] == name]
+            if not matches:
+                raise RuntimeError(f"Bitwarden item '{self.folder}/{name}' not found")
+            self._item_cache[name] = matches[0]
+        return self._item_cache[name]
+
+    def read_login(self, item: str) -> dict:
+        login = self._item(item).get("login") or {}
+        return {"username": login.get("username") or "", "password": login.get("password") or ""}
+
+    def read_field(self, item: str, field: str) -> str:
+        fields = {f["name"]: f["value"] for f in (self._item(item).get("fields") or [])}
+        return fields.get(field, "") or ""
+
+    def read_ssh_key(self, item: str) -> dict:
+        ssh = self._item(item)["sshKey"]
+        return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
+
+    def write_field(self, item: str, field: str, value: str, concealed: bool = True) -> None:
+        data = json.loads(json.dumps(self._item(item)))  # deep copy
+        fields = data.get("fields") or []
+        existing = next((f for f in fields if f["name"] == field), None)
+        if existing:
+            existing["value"] = value
+        else:
+            fields.append({"name": field, "value": value, "type": 1 if concealed else 0})
+        data["fields"] = fields
+        encoded = subprocess.run(
+            ["bw", "encode"], input=json.dumps(data), capture_output=True, text=True, check=True
+        ).stdout.strip()
+        subprocess.run(
+            ["bw", "edit", "item", data["id"], encoded],
+            capture_output=True,
+            text=True,
+            check=True,
         )
-    return match["id"]
+        self._item_cache.pop(item, None)
+
+    def item_exists(self, item: str) -> bool:
+        try:
+            self._item(item)
+            return True
+        except RuntimeError:
+            return False
 
 
-def _edit_item(item):
-    """Encode and save an item to Bitwarden, then clear the cache."""
-    encoded = subprocess.run(
-        ["bw", "encode"],
-        input=json.dumps(item),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    subprocess.run(
-        ["bw", "edit", "item", item["id"], encoded],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    _get_item.cache_clear()
+# --------------------------------------------------------------------------- #
+# Backend selection
+# --------------------------------------------------------------------------- #
+
+_VAULT = os.environ.get("OP_VAULT", "raspi")
+_BACKEND = os.environ.get("SECRET_BACKEND", "op")
+
+if _BACKEND == "op":
+    _b: Backend = OpBackend(_VAULT)
+elif _BACKEND == "bw":
+    _b = BwBackend(_VAULT)
+else:
+    raise RuntimeError(f"Unknown SECRET_BACKEND '{_BACKEND}' — expected 'op' or 'bw'")
 
 
-@functools.cache
-def _get_item(name):
-    items = json.loads(_bw("list", "items", "--search", name, "--folderid", _folder_id()))
-    matches = [i for i in items if i["name"] == name]
-    if not matches:
-        raise RuntimeError(f"Bitwarden item 'raspi/{name}' not found")
-    return matches[0]
+def _get_or_create(item: str, field: str, gen) -> str:
+    """Read a field, or generate + persist it on first call. Backs every
+    auto-generated, must-survive-restarts secret (cookie/session/api keys)."""
+    value = _b.read_field(item, field)
+    if value:
+        return value
+    value = gen()
+    _b.write_field(item, field, value)
+    return value
 
 
-def _fields(item_name) -> dict:
-    item = _get_item(item_name)
-    return {f["name"]: f["value"] for f in (item.get("fields") or [])}
+# --------------------------------------------------------------------------- #
+# Public helpers — vendor-neutral; task files call these
+# --------------------------------------------------------------------------- #
 
 
-def bw_field(item: str, field: str) -> str:
-    """Return a single hidden/text field from a Bitwarden item, or empty string.
+def secret_field(item: str, field: str) -> str:
+    """A single field from an item, or "". Used where a service maps an env var
+    to a field name via `secret_env` in group_data/all.py (see HALO)."""
+    return _b.read_field(item, field)
 
-    Used by tasks that map a service env var name to a BW field name via the
-    `secret_env` dict in `group_data/all.py` (see HALO for the canonical example).
-    """
-    return _fields(item).get(field, "") or ""
+
+def save_field(item: str, field: str, value: str) -> None:
+    """Upsert a concealed field. Used by post-deploy steps that persist a
+    server-generated credential back to the store (e.g. Kanidm OIDC secrets)."""
+    _b.write_field(item, field, value, concealed=True)
 
 
 def pihole_password() -> str:
-    return _get_item("pihole")["login"]["password"]
+    return _b.read_login("pihole")["password"]
 
 
 def cifs_creds(share_name: str) -> str:
-    f = _fields("cifs")
-    return f"username={f[f'{share_name}_username']}\npassword={f[f'{share_name}_password']}\n"
+    u = _b.read_field("cifs", f"{share_name}_username")
+    p = _b.read_field("cifs", f"{share_name}_password")
+    return f"username={u}\npassword={p}\n"
 
 
 def abs_creds() -> dict:
-    login = _get_item("audiobookshelf")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("audiobookshelf")
 
 
 def abs_api_key() -> str:
-    """Return the current ABS API key stored in Bitwarden, or empty string."""
-    return _fields("audiobookshelf").get("api_key", "") or ""
+    return _b.read_field("audiobookshelf", "api_key")
 
 
 def save_abs_api_key(token: str) -> None:
-    """Write the ABS user API token to the api_key hidden field."""
-    item = json.loads(json.dumps(_get_item("audiobookshelf")))  # copy
-    fields = item.get("fields") or []
-    existing = next((f for f in fields if f["name"] == "api_key"), None)
-    if existing:
-        existing["value"] = token
-    else:
-        fields.append({"name": "api_key", "value": token, "type": 1})
-    item["fields"] = fields
-    _edit_item(item)
+    _b.write_field("audiobookshelf", "api_key", token)
 
 
 def wg_portal_creds() -> dict:
-    item = _get_item("wireguard-portal")
-    return {
-        "username": item["login"]["username"],
-        "password": item["login"]["password"],
-        "api_token": _fields("wireguard-portal").get("api_token", ""),
-    }
-
-
-def _set_field(item_name: str, field_name: str, value: str, field_type: int = 1) -> None:
-    """Upsert a single custom field on a BW item (field_type 1 = hidden)."""
-    item = json.loads(json.dumps(_get_item(item_name)))  # copy
-    fields = item.get("fields") or []
-    existing = next((f for f in fields if f["name"] == field_name), None)
-    if existing:
-        existing["value"] = value
-    else:
-        fields.append({"name": field_name, "value": value, "type": field_type})
-    item["fields"] = fields
-    _edit_item(item)
+    login = _b.read_login("wireguard-portal")
+    return {**login, "api_token": _b.read_field("wireguard-portal", "api_token")}
 
 
 def beszel_user_password(email: str) -> str:
-    """Get — or generate once and store — the password for a managed beszel user
-    (BESZEL["users"]). Kept on the `beszel` BW item as the hidden field
-    `user_pw_<email>` so it's stable across deploys and recoverable. Generated on
-    first call; tasks/beszel.py then upserts the PocketBase user with it."""
-    field = f"user_pw_{email}"
-    existing = bw_field("beszel", field)
-    if existing:
-        return existing
-    pw = secrets.token_urlsafe(32)
-    _set_field("beszel", field, pw)
-    return pw
+    """Password for a managed beszel user (BESZEL["users"]); generated once and
+    persisted as the `user_pw_<email>` field so it's stable + recoverable."""
+    return _get_or_create("beszel", f"user_pw_{email}", lambda: secrets.token_urlsafe(32))
 
 
 def cloudflare() -> dict:
-    item = _get_item("cloudflare")
     return {
-        "token": item["login"]["password"],
-        "zone_id": _fields("cloudflare")["zone_id"],
+        "token": _b.read_login("cloudflare")["password"],
+        "zone_id": _b.read_field("cloudflare", "zone_id"),
     }
 
 
 def wg_server_key() -> dict:
-    f = _fields("wireguard-server-key")
-    return {k: v for k, v in f.items() if v}
+    return {
+        k: v
+        for k, v in {
+            "private_key": _b.read_field("wireguard-server-key", "private_key"),
+            "public_key": _b.read_field("wireguard-server-key", "public_key"),
+        }.items()
+        if v
+    }
+
+
+def save_wg_server_key(private_key: str, public_key: str) -> None:
+    _b.write_field("wireguard-server-key", "private_key", private_key, concealed=True)
+    _b.write_field("wireguard-server-key", "public_key", public_key, concealed=False)
 
 
 def vaultwarden_admin_token_hash() -> str:
-    return _fields("vaultwarden")["admin_token"]
+    return _b.read_field("vaultwarden", "admin_token")
 
 
 def vaultwarden_smtp_email() -> str:
-    return _fields("vaultwarden")["smtp_email"]
+    return _b.read_field("vaultwarden", "smtp_email")
 
 
 def vaultwarden_smtp_password() -> str:
-    return _fields("vaultwarden")["smtp_password"]
+    return _b.read_field("vaultwarden", "smtp_password")
 
 
 def asus_router_ssh() -> dict:
-    item = _get_item("asus-router")
-    ssh = item["sshKey"]
-    return {"private_key": ssh["privateKey"], "public_key": ssh["publicKey"]}
+    return _b.read_ssh_key("asus-router")
 
 
 def yarr_creds() -> dict:
-    login = _get_item("yarr")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("yarr")
 
 
 def navidrome_creds() -> dict:
-    login = _get_item("navidrome")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("navidrome")
 
 
 def memos_creds() -> dict:
-    login = _get_item("memos")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("memos")
 
 
 def restic_password() -> str:
-    return _get_item("restic")["login"]["password"]
+    return _b.read_login("restic")["password"]
 
 
 def syncthing_creds() -> dict:
-    login = _get_item("syncthing")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("syncthing")
 
 
 def dockerhub_creds() -> dict:
-    login = _get_item("dockerhub")["login"]
-    return {"username": login["username"], "password": login["password"]}
+    return _b.read_login("dockerhub")
 
 
 def beszel_admin_creds() -> dict:
-    """Hub admin email + password. Empty strings if item missing — hub will come
-    up with no admin user, set one via the web UI, populate BW, then redeploy."""
-    try:
-        login = _get_item("beszel")["login"]
-    except RuntimeError:
+    """Hub admin email + password. Empty strings if the item is missing — hub
+    comes up with no admin, set one in the web UI, populate the vault, redeploy."""
+    if not _b.item_exists("beszel"):
         return {"email": "", "password": ""}
-    return {"email": login.get("username") or "", "password": login.get("password") or ""}
+    login = _b.read_login("beszel")
+    return {"email": login["username"], "password": login["password"]}
 
 
 def kanidm_oidc_secret(field_name: str) -> str:
-    """Return an OIDC client secret from the kanidm BW item, or empty string.
-
-    Returns empty on first deploy before Kanidm has generated the secret."""
-    return _fields("kanidm").get(field_name, "") or ""
+    """An OIDC client secret from the kanidm item, or "" before Kanidm has
+    generated it on the first deploy."""
+    return _b.read_field("kanidm", field_name)
 
 
 def oauth2_proxy_cookie_secret() -> str:
-    """Return the oauth2-proxy cookie secret, generating + persisting it on first call.
-
-    A stable cookie secret is required so sessions survive restarts."""
-    existing = _fields("oauth2-proxy").get("cookie_secret", "") or ""
-    if existing:
-        return existing
-    new = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
-    item = json.loads(json.dumps(_get_item("oauth2-proxy")))  # copy
-    fields = item.get("fields") or []
-    fields.append({"name": "cookie_secret", "value": new, "type": 1})
-    item["fields"] = fields
-    _edit_item(item)
-    return new
+    """Stable cookie secret (base64 of 32 random bytes) so sessions survive restarts."""
+    return _get_or_create(
+        "oauth2-proxy",
+        "cookie_secret",
+        lambda: base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("="),
+    )
 
 
 def chat_session_key() -> str:
-    """Return chat SESSION_KEY (64-byte hex), generating + persisting on first call.
-
-    A stable key is required so cookie-encrypted sessions survive restarts."""
-    return _chat_hex_field("session_key", 64)
+    """chat SESSION_KEY (64-byte hex) — stable so cookie-encrypted sessions survive restarts."""
+    return _get_or_create("chat", "session_key", lambda: secrets.token_hex(64))
 
 
 def chat_mcp_api_key() -> str:
-    """Bearer for the mcp-chat → chat-backend hop on /api/v1/*."""
-    return _chat_hex_field("mcp_api_key", 32)
+    """Bearer for the mcp-chat -> chat-backend hop on /api/v1/*."""
+    return _get_or_create("chat", "mcp_api_key", lambda: secrets.token_hex(32))
 
 
 def chat_mcp_server_key() -> str:
     """Bearer that gates inbound clients hitting chat-mcp's /mcp."""
-    return _chat_hex_field("mcp_server_key", 32)
+    return _get_or_create("chat", "mcp_server_key", lambda: secrets.token_hex(32))
 
 
 def scribe_session_key() -> str:
-    """Return scribe SESSION_KEY (64-byte hex), generating + persisting on first call.
-
-    A stable key is required so signed session cookies survive restarts."""
-    return _scribe_hex_field("session_key", 64)
+    """scribe SESSION_KEY (64-byte hex) — stable so signed session cookies survive restarts."""
+    return _get_or_create("scribe", "session_key", lambda: secrets.token_hex(64))
 
 
 def scribe_press_token() -> str:
-    """Bearer for the scribe → scribe-press hop. Must match the same value
-    in the mini's `mini/scribe-press` BW item under `api_key` — the mini
-    deploy reads from there, raspi from here. Paste both sides identically."""
-    return _fields("scribe").get("press_token", "") or ""
+    """Bearer for the scribe -> scribe-press hop. Must match the mini's
+    `mini/scribe-press` item `api_key` field — paste both sides identically."""
+    return _b.read_field("scribe", "press_token")
 
 
 def scribe_abs_token() -> str:
-    """API token for audiobookshelf — used by scribe to POST /api/libraries/{id}/scan
-    after each completed download. Hand-issued via ABS root login + paste into BW."""
-    return _fields("scribe").get("abs_token", "") or ""
+    """ABS API token — scribe POSTs /api/libraries/{id}/scan after a download.
+    Hand-issued via the ABS root login and pasted in."""
+    return _b.read_field("scribe", "abs_token")
 
 
 def shelf_api_key() -> str:
-    """Bearer token for scribe-shelf. Auto-generated on first call and
-    stored as the `shelf_api_key` field on the `scribe` BW item — shelf
-    is a scribe sidecar, so its credential lives with its owner. Both
-    /etc/secrets/shelf.env and /etc/secrets/scribe.env read this same
-    value, so the two services stay in sync without cross-item upsert
-    juggling."""
-    return _scribe_hex_field("shelf_api_key", 32)
-
-
-def _scribe_hex_field(field: str, nbytes: int) -> str:
-    """Auto-generated hex field on the `scribe` BW item, persisted on first call."""
-    existing = _fields("scribe").get(field, "") or ""
-    if existing:
-        return existing
-    new = secrets.token_hex(nbytes)
-    item = json.loads(json.dumps(_get_item("scribe")))  # copy
-    fields = item.get("fields") or []
-    fields.append({"name": field, "value": new, "type": 1})
-    item["fields"] = fields
-    _edit_item(item)
-    return new
+    """Bearer for scribe-shelf (32-byte hex, auto). Lives on the `scribe` item
+    (shelf is a scribe sidecar); shelf.env and scribe.env read the same value."""
+    return _get_or_create("scribe", "shelf_api_key", lambda: secrets.token_hex(32))
 
 
 def shim_passphrase() -> str:
-    """Encryption passphrase for shim's on-disk Audible auth files.
-    Stored as a custom field on the `scribe` BW item — shim is a scribe
-    sidecar, so the credential lives with its owner. Auto-generated on
-    first call; stable across deploys so credentials persist across
-    restarts."""
-    return _scribe_hex_field("shim_passphrase", 48)
-
-
-def _chat_hex_field(field: str, nbytes: int) -> str:
-    """Return an auto-generated hex field from the `chat` BW item, creating it
-    on first call. Stable values keep sessions/auth surviving restarts."""
-    existing = _fields("chat").get(field, "") or ""
-    if existing:
-        return existing
-    new = secrets.token_hex(nbytes)
-    item = json.loads(json.dumps(_get_item("chat")))  # copy
-    fields = item.get("fields") or []
-    fields.append({"name": field, "value": new, "type": 1})
-    item["fields"] = fields
-    _edit_item(item)
-    return new
-
-
-def save_wg_server_key(private_key: str, public_key: str) -> None:
-    item = json.loads(json.dumps(_get_item("wireguard-server-key")))  # copy
-    item["fields"] = [
-        {"name": "private_key", "value": private_key, "type": 1},
-        {"name": "public_key", "value": public_key, "type": 0},
-    ]
-    _edit_item(item)
+    """Encrypts shim's on-disk Audible auth (48-byte hex, auto). Lives on the
+    `scribe` item (shim is a scribe sidecar); stable across deploys."""
+    return _get_or_create("scribe", "shim_passphrase", lambda: secrets.token_hex(48))

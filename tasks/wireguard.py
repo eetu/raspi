@@ -7,7 +7,7 @@ import io
 from pyinfra import logger
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import WIREGUARD
 
 
@@ -23,14 +23,14 @@ def _generate_keypair():
 
 # --- Keypair: fetch from Bitwarden or generate ---
 
-existing = bw.wg_server_key()
+existing = vault.wg_server_key()
 if existing.get("private_key"):
     private_key = existing["private_key"]
     public_key = existing["public_key"]
     logger.info("WireGuard: using existing keypair from Bitwarden")
 else:
     private_key, public_key = _generate_keypair()
-    bw.save_wg_server_key(private_key, public_key)
+    vault.save_wg_server_key(private_key, public_key)
     logger.info(f"WireGuard: generated new keypair, public key: {public_key}")
 
 # --- wg0.conf ---

@@ -13,7 +13,7 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import KANIDM_OIDC_CLIENTS
 from tasks.util import optional, resolve_latest
 
@@ -46,7 +46,9 @@ else:
     #    we bootstrap an admin user from the `navidrome` Bitwarden item so plain
     #    Subsonic clients can log in with username/password.
     _oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-    _oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
+    _oauth2_active = bool(
+        _oauth2_client and vault.kanidm_oidc_secret(_oauth2_client["secret_field"])
+    )
 
     quadlet = f"""\
 [Unit]
@@ -131,7 +133,7 @@ WantedBy=multi-user.target
         # log in. /auth/createAdmin is a no-op once a user exists, so re-running
         # the deploy is safe; rotating the BW password however does NOT propagate
         # to an existing admin user — that requires a manual reset.
-        _creds = bw.navidrome_creds()
+        _creds = vault.navidrome_creds()
         _nd_password_json = json.dumps(_creds["password"])
         server.shell(
             name="Initialize Navidrome admin user",

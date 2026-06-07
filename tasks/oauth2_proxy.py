@@ -11,7 +11,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, OAUTH2_PROXY
 from tasks.util import restart_if_changed
 
@@ -23,7 +23,7 @@ BINARY_URL = (
 )
 
 _oidc_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-_oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+_oidc_secret = vault.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
 
 # --- Binary ---
 

@@ -13,7 +13,7 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from tasks.util import optional, restart_if_changed
 
 SYNCTHING = optional("SYNCTHING")
@@ -39,7 +39,7 @@ else:
         f"syncthing-linux-arm64-{VERSION}.tar.gz"
     )
 
-    _creds = bw.syncthing_creds()
+    _creds = vault.syncthing_creds()
     _user_json = json.dumps(_creds["username"])
     _pw_json = json.dumps(_creds["password"])
 

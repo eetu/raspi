@@ -17,7 +17,7 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import (
     KANIDM,
     KANIDM_OIDC_CLIENTS,
@@ -63,7 +63,7 @@ DOMAIN = NETWORK["domain"]
 # music router — when oauth2-proxy is not configured, Navidrome is exposed
 # directly and clients use its native username/password auth instead of IAP.
 _oauth2_client = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-_oauth2_active = bool(_oauth2_client and bw.kanidm_oidc_secret(_oauth2_client["secret_field"]))
+_oauth2_active = bool(_oauth2_client and vault.kanidm_oidc_secret(_oauth2_client["secret_field"]))
 
 # Hosts fronted by an oauth2-proxy forward-auth chain. Each gets a per-host
 # errors middleware whose `rd` pins the post-auth redirect target. pihole is

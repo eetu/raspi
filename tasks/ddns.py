@@ -6,13 +6,13 @@ import io
 
 from pyinfra.operations import files, systemd
 
-import vault as bw
+import vault
 from group_data.all import NETWORK, WIREGUARD
 
 DOMAIN = NETWORK["domain"]
 
 _router_configured = bool(NETWORK.get("router_ssh_port"))
-_router_key = bw.asus_router_ssh() if _router_configured else None
+_router_key = vault.asus_router_ssh() if _router_configured else None
 
 if _router_configured:
     _router_fn = (

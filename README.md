@@ -39,18 +39,22 @@ Halo, Audiobookshelf, Navidrome, ntfy, Gatus, Vaultwarden, Memos, Kanidm, Chat, 
 - Raspberry Pi 4 with a fresh Raspberry Pi OS Lite 64-bit SD card
   - Set username, SSH public key, hostname and WiFi in Raspberry Pi Imager before flashing
 - [uv](https://docs.astral.sh/uv/) on your Mac
-- [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) with a `raspi` folder containing all required secrets (see below)
+- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) with a `raspi` vault containing all required secrets (see below), and the desktop-app CLI integration enabled. Bitwarden (`bw`) still works as a fallback backend — see *Secrets backend* below.
 - Domain managed in Cloudflare DNS
 
 ## Secrets
 
-All API tokens and credentials are stored in Bitwarden under a `raspi` folder. Pyinfra fetches them locally at deploy time and writes them to `/etc/secrets/` on the Pi.
+All API tokens and credentials are stored in a `raspi` 1Password vault. Pyinfra fetches them locally at deploy time and writes them to `/etc/secrets/` on the Pi.
 
-Non-secret service config (ports, hostnames, base URLs, room layouts, PV system params, etc.) lives in `group_data/all.py`, which is gitignored. Per-service env files merge BW-sourced secrets (`/etc/secrets/{svc}.env`, loaded via `EnvironmentFile=`) with inline plain config from `all.py` (rendered as `Environment=` lines in the unit/quadlet).
+### Secrets backend
 
-For Halo, the `secret_env` dict in `all.py` maps each env var name to its hidden field on the BW `halo` item — explicit, reviewable, and easy to audit when adding new integrations.
+`vault.py` is a pluggable secret layer — task files call vendor-neutral helpers; the backend swaps via env. `SECRET_BACKEND=op` (default) uses the 1Password CLI through the desktop-app integration (Touch ID on first call, no session env var); `SECRET_BACKEND=bw` uses the Bitwarden CLI (needs `BW_SESSION`). `OP_VAULT` sets the vault name (default `raspi`). The item/field layout below is identical across both.
 
-| Bitwarden item | Contains |
+Non-secret service config (ports, hostnames, base URLs, room layouts, PV system params, etc.) lives in `group_data/all.py`, which is gitignored. Per-service env files merge vault-sourced secrets (`/etc/secrets/{svc}.env`, loaded via `EnvironmentFile=`) with inline plain config from `all.py` (rendered as `Environment=` lines in the unit/quadlet).
+
+For Halo, the `secret_env` dict in `all.py` maps each env var name to its hidden field on the `halo` item — explicit, reviewable, and easy to audit when adding new integrations.
+
+| Vault item | Contains |
 |---|---|
 | `halo` | One hidden field per `HALO["secret_env"]` value in `all.py` (e.g. `tomorrow_io_api_key`, `solis_key_id`, `solis_key_secret`, `hue_bridge_user`) |
 | `pihole` | Pi-hole admin password |
@@ -88,11 +92,13 @@ uv sync
 ./install-hooks.sh
 ```
 
-**3. Unlock Bitwarden**
+**3. Unlock the secret store**
+
+With 1Password (default), nothing to do up front — the first `op` call during deploy triggers Touch ID (requires the desktop-app CLI integration: 1Password → Settings → Developer → "Integrate with 1Password CLI"). To use the Bitwarden fallback instead:
 
 ```fish
-set -x BW_SESSION (bw unlock --raw)
-bw sync
+set -x BW_SESSION (bw unlock --raw); bw sync
+set -x SECRET_BACKEND bw
 ```
 
 **4. Deploy**
@@ -179,13 +185,13 @@ The ntfy server is behind the firewall and only reachable from LAN or WireGuard.
 
 ## Audiobookshelf mobile app setup
 
-The deploy creates a scoped API key in ABS (named `mobile`, acts on behalf of the root user) and writes it to Bitwarden (`raspi/audiobookshelf → api_key` hidden field). Retrieve it and enter it in the app:
+The deploy creates a scoped API key in ABS (named `mobile`, acts on behalf of the root user) and writes it to the vault (`raspi/audiobookshelf → api_key` hidden field). Retrieve it and enter it in the app:
 
-1. Unlock Bitwarden and run `bw get item audiobookshelf` — copy the `api_key` field value
+1. Run `op read "op://raspi/audiobookshelf/api_key"` — copy the value
 2. Open the app → set the server URL to `https://audiobooks.yourdomain.com`
 3. Enter the API key when prompted
 
-**To rotate the API key:** clear the `api_key` field in Bitwarden and redeploy — the old key is deleted and a new one is created.
+**To rotate the API key:** clear the `api_key` field in the vault and redeploy — the old key is deleted and a new one is created.
 
 The library is created automatically by the deploy and syncs from `/mnt/audiobooks/audible/books` on the NAS — Scribe writes M4Bs into this tree and POSTs a rescan to ABS after each completed job. New books are detected by the file watcher instantly; a full rescan runs every hour.
 
@@ -200,7 +206,7 @@ brew install argon2
 printf 'your-password' | argon2 "$(openssl rand -base64 24)" -id -t 3 -m 16 -p 4 -l 32 -e
 ```
 
-Store the output (`$argon2id$v=19$...`) in a hidden custom field named `admin_token` on the `raspi/vaultwarden` Bitwarden item. Store your plain-text admin password in the `password` field.
+Store the output (`$argon2id$v=19$...`) in a hidden custom field named `admin_token` on the `raspi/vaultwarden` vault item. Store your plain-text admin password in the `password` field.
 
 **2. Create your user account**
 
@@ -227,16 +233,16 @@ Kanidm provides single sign-on for services that support OIDC (starting with Vau
 **What the deploy does automatically:**
 
 1. Starts the Kanidm container with TLS (reuses Traefik's ACME wildcard cert via a systemd path watcher)
-2. Bootstraps the admin password from Bitwarden (one-shot, not kept in container env)
+2. Bootstraps the admin password from the vault (one-shot, not kept in container env)
 3. Creates person accounts defined in `KANIDM_PERSONS` in `all.py`
-4. Generates credential reset tokens and saves them to Bitwarden
+4. Generates credential reset tokens and saves them to the vault
 5. Configures OAuth2/OIDC clients defined in `KANIDM_OIDC_CLIENTS` in `all.py`
 
 **After the first deploy — set up your credentials:**
 
-1. Retrieve your credential reset token from Bitwarden:
+1. Retrieve your credential reset token from the vault:
    ```sh
-   bw get item kanidm | jq -r '.fields[] | select(.name == "yourusername_reset_token") | .value'
+   op item get kanidm --vault raspi --format json | jq -r '.fields[] | select(.label == "yourusername_reset_token") | .value'
    ```
 2. Visit the URL printed by the token — it opens Kanidm's credential setup page
 3. Set a password and/or register a passkey
@@ -244,13 +250,13 @@ Kanidm provides single sign-on for services that support OIDC (starting with Vau
 
 **Adding a new person:**
 
-Add an entry to `KANIDM_PERSONS` in `group_data/all.py` and redeploy. The reset token will be saved to Bitwarden and printed during deploy.
+Add an entry to `KANIDM_PERSONS` in `group_data/all.py` and redeploy. The reset token will be saved to the vault and printed during deploy.
 
 **Adding OIDC to a new service:**
 
 1. Add an entry to `KANIDM_OIDC_CLIENTS` in `group_data/all.py` (set `disable_pkce=True` if the client doesn't support PKCE)
 2. In the service's task, read the client secret via `bw.kanidm_oidc_secret(KANIDM_OIDC_CLIENTS[name]["secret_field"])` and only configure SSO when it is non-empty (see `tasks/secrets.py` and `tasks/wg_portal.py` for examples)
-3. First deploy registers the client in Kanidm and saves the generated secret to Bitwarden. A second deploy then propagates it into the service's env file and turns SSO on.
+3. First deploy registers the client in Kanidm and saves the generated secret to the vault. A second deploy then propagates it into the service's env file and turns SSO on.
 
 OIDC is fully optional — services that aren't in `KANIDM_OIDC_CLIENTS` deploy normally without any SSO configuration. You can also leave the dict empty entirely if you don't want to use Kanidm SSO for any service.
 
@@ -264,9 +270,9 @@ Services that don't support Kanidm OIDC directly are gated via oauth2-proxy runn
 - Pi-hole `/api/info/version` — used by Gatus uptime checks
 - Syncthing `/rest/noauth/health` — used by Gatus uptime checks
 
-Subsonic clients reach Navidrome via the IAP/SSO browser flow (e.g. Flo's "Login with IAP") — they complete the Kanidm login in a webview and reuse the resulting cookie for `/rest` calls. When `oauth2-proxy` is not configured for the deployment, Navidrome's music router runs without middleware and the deploy bootstraps an admin user from the `navidrome` Bitwarden item so plain Subsonic clients can log in with username/password.
+Subsonic clients reach Navidrome via the IAP/SSO browser flow (e.g. Flo's "Login with IAP") — they complete the Kanidm login in a webview and reuse the resulting cookie for `/rest` calls. When `oauth2-proxy` is not configured for the deployment, Navidrome's music router runs without middleware and the deploy bootstraps an admin user from the `navidrome` vault item so plain Subsonic clients can log in with username/password.
 
-No manual setup needed — oauth2-proxy is fully provisioned by the deploy (binary, config, systemd unit, Kanidm OIDC client, cookie secret in Bitwarden).
+No manual setup needed — oauth2-proxy is fully provisioned by the deploy (binary, config, systemd unit, Kanidm OIDC client, cookie secret in the vault).
 
 ## IPv6 DDNS and router firewall automation
 
@@ -292,7 +298,7 @@ If your router's IPv6 firewall pins the WireGuard rule to a specific host addres
    ssh USER@ROUTER chmod +x /jffs/scripts/update-wg-firewall.sh
    ssh USER@ROUTER 'echo "/jffs/scripts/update-wg-firewall.sh" >> /jffs/scripts/firewall-start && chmod +x /jffs/scripts/firewall-start'
    ```
-4. Create a Bitwarden SSH key item named `asus-router` in the `raspi` folder
+4. Create an SSH key item named `asus-router` in the `raspi` vault
 5. Add the public key to the router's authorized_keys with a `command=` restriction:
    ```
    command="/jffs/scripts/update-wg-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
@@ -351,7 +357,7 @@ All alerts are delivered to the ntfy topic configured in `NTFY["topic"]` (defaul
 
 Quadlet containers carry `io.containers.autoupdate=registry`: the `podman-auto-update` timer pulls each running tag, restarts the container when the digest changes, and prunes superseded images afterwards (drop-in in `tasks/podman.py`). Version-pinned images (e.g. Kanidm) only move when the tag in `group_data/all.py` is bumped and redeployed.
 
-Docker Hub credentials from Bitwarden are used to avoid unauthenticated pull rate limits.
+Docker Hub credentials from the vault are used to avoid unauthenticated pull rate limits.
 
 No setup required — runs automatically after deploy.
 
@@ -386,7 +392,7 @@ Service state (Vaultwarden DB, Kanidm DB, Navidrome library/playlists, Memos DB,
 
 **Configuration** lives under `RESTIC` in `group_data/all.py`: paths to back up, paths to exclude (default excludes Navidrome's regenerable cache + artwork dirs), retention, schedules, prune cap. Removing the `RESTIC` dict from `all.py` opts the host out — `tasks/restic.py` becomes a no-op.
 
-**Storage** — the `backups` CIFS share (configured in `CIFS["backups"]`) is mounted via systemd automount; credentials come from the standard `cifs` Bitwarden item using `backups_username` / `backups_password` fields. The encryption password is a separate, load-bearing secret on a dedicated `restic` Bitwarden item.
+**Storage** — the `backups` CIFS share (configured in `CIFS["backups"]`) is mounted via systemd automount; credentials come from the standard `cifs` vault item using `backups_username` / `backups_password` fields. The encryption password is a separate, load-bearing secret on a dedicated `restic` vault item.
 
 **Restore on a blank Pi**
 
@@ -394,7 +400,6 @@ After re-flashing the SD card, the deploy can restore the latest snapshot before
 
 - **Cold start (NAS share not yet mounted at plan time)** — set the env var:
   ```fish
-  set -x BW_SESSION (bw unlock --raw)
   RESTORE=true uv run pyinfra inventory.py deploy.py
   ```
 - **Re-bootstrap with the share already mounted from a prior deploy** — the deploy detects `/var/lib/vaultwarden` missing AND a repo present at `/mnt/backups/raspi-restic`, then prompts interactively before queuing the restore step.
@@ -409,14 +414,13 @@ sudo bash -c '. /etc/secrets/restic.env; restic stats'
 sudo bash -c '. /etc/secrets/restic.env; restic restore <snapshot-id> --target /tmp/restored'
 ```
 
-For ad-hoc work that needs more RAM than the Pi can spare, mount the same share from your laptop and run `restic` against it directly — the encryption password from Bitwarden is the only thing required.
+For ad-hoc work that needs more RAM than the Pi can spare, mount the same share from your laptop and run `restic` against it directly — the encryption password from the vault is the only thing required.
 
 ## Re-deploying
 
 The deploy is fully idempotent. Run it any time to apply config changes or upgrade packages:
 
 ```fish
-set -x BW_SESSION (bw unlock --raw) && bw sync
 uv run pyinfra inventory.py deploy.py
 ```
 
@@ -431,7 +435,7 @@ When the Pi 4 outgrows itself, the planned jump is the full stack rather than ha
 - **Hardware**: Raspberry Pi 5, 8 GB. The k8s control plane alone needs ~1–1.5 GB before any workload.
 - **OS**: [Talos Linux](https://www.talos.dev/) — immutable, API-driven (`talosctl`, no SSH), Kubernetes-only. WireGuard stays on the host via `machine.network.interfaces` (Talos has native `wireguard` interface type); everything else moves into the cluster.
 - **Workloads**: all current services as Deployments/StatefulSets. Traefik in k8s mode, wg-portal via Helm, native binaries (Yarr, Syncthing, oauth2-proxy) as pods. VuIO moves off the Pi entirely — DLNA multicast doesn't belong in a cluster.
-- **Secrets**: [external-secrets](https://external-secrets.io/) or [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets) replacing the Bitwarden-on-deploy flow.
+- **Secrets**: [external-secrets](https://external-secrets.io/) or [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets) replacing the vault-on-deploy flow.
 - **Network policy**: Cilium or Calico `NetworkPolicy` replacing the nftables + cgroup egress rules.
 - **GitOps**: Flux or Argo CD replacing `pyinfra inventory.py deploy.py`.
 - **Backups**: restic as a `CronJob` with a PVC, same encrypted repo on the NAS.

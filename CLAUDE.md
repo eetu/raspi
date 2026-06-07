@@ -13,14 +13,19 @@ features* below.
 ## Deploy
 
 ```fish
-set -x BW_SESSION (bw unlock --raw)        # unlock Bitwarden first
+# Secrets come from 1Password via the desktop-app CLI integration — the first
+# `op` call in a deploy triggers Touch ID, cached for the rest. No env var.
 uv run pyinfra inventory.py deploy.py --limit raspi   # the full server
 uv run pyinfra inventory.py deploy.py --limit raspo   # the camera node
 ```
 
 `--limit <group>` targets one host; omit it to deploy both. `-y` skips the
 interactive confirmation (needed for non-interactive runs). A camera-node deploy
-needs no `BW_SESSION` (it writes no secrets). Idempotent — safe to re-run.
+touches no secrets at all. Idempotent — safe to re-run.
+
+Secrets backend is pluggable via `vault.py` (env `SECRET_BACKEND=op|bw`, default
+`op`; `OP_VAULT` names the vault, default `raspi`). The legacy Bitwarden backend
+still works — `set -x BW_SESSION (bw unlock --raw)` then `SECRET_BACKEND=bw …`.
 
 ## Validate before commit
 
@@ -43,7 +48,7 @@ A save hook runs `ruff format` automatically, which removes unused imports. When
 | `group_data/<host>.py` | Per-host `FEATURES` set (`raspi.py`, `raspo.py`) |
 | `group_data/all.py` | All service config (ports, versions, images) — gitignored, shared by all hosts |
 | `group_data/all.example.py` | Template for `all.py` — keep in sync when adding services |
-| `vault.py` | Bitwarden CLI helpers — secrets fetched at deploy time |
+| `vault.py` | Secret helpers — pluggable backend (1Password / Bitwarden), fetched at deploy time |
 | `tasks/` | One file per service |
 
 ## Hosts & features
@@ -83,9 +88,13 @@ A Pi 3 B+ with the official camera module. Runs `base` + `camera` + `telemetry`:
 - `tasks/camera.py` — apt `python3-picamera2` + Pillow + numpy + venv; enables
   `camera_auto_detect`.
 - `tasks/ocular.py` — **native deploy** (not a container) of the `ocular`
-  camera-vision app from the sibling `../ocular` working tree: build the frontend
-  first (`cd ../ocular/frontend && yarn build`), then it ships `dist` + backend
-  src to `/opt/ocular`, makes a `--system-site-packages` venv (picamera2 from
+  camera-vision app. Pulls the self-contained release tarball (backend src +
+  built SPA + VERSION) published by ocular's Release workflow —
+  `OCULAR["version"]` (`"main"` rolling, default, or a pinned `vX.Y.Z`) — so the
+  deploy never ships a stale local `dist`; the Pi curls it from github.com
+  (per-service cgroup egress restriction doesn't apply to the root deploy), the
+  published `.sha256` gating re-download + restart. Extracts to `/opt/ocular`,
+  makes a `--system-site-packages` venv (picamera2 from
   apt, fastapi/uvicorn from pip), renders `/etc/ocular/config.json` from the
   `OCULAR` dict, and runs a sandboxed systemd unit with camera `DeviceAllow` +
   `video` group. raspi's Traefik proxies `ocular.{domain}` to raspo's LAN IP (the
@@ -134,7 +143,7 @@ The deploy is opinionated about which services are core and which are à la cart
 
 1. Comment the service's dict in `group_data/all.py`.
 2. Run the deploy. The task drops into its cleanup branch (stops + disables the systemd unit) and dependent tasks (`tasks/traefik.py`, `tasks/secrets.py`, `tasks/gatus.py`, …) drop the wiring tied to that dict.
-3. State on disk (`/var/lib/{service}`, BW item, Kanidm OIDC client, `/etc/secrets/{service}.env`) stays untouched so re-adding the block + redeploying is a clean rollback.
+3. State on disk (`/var/lib/{service}`, vault item, Kanidm OIDC client, `/etc/secrets/{service}.env`) stays untouched so re-adding the block + redeploying is a clean rollback.
 
 ### Making a service retirement-safe
 
@@ -160,15 +169,15 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
 - [ ] `group_data/features.py` — add `("{service}", "{feature}")` to `DEPLOY` (this replaces the old `deploy.py` `local.include` line; deploy.py includes by feature). Tag it `apps` for a standard Pi-4 web service, or a new feature if it's a distinct role.
-- [ ] Bitwarden — create item in `raspi` folder before deploying
+- [ ] Secret store — create the item in the `raspi` 1Password vault before deploying
 
 ## Secrets handling — AI assistants read this
 
 **Do NOT read secret values into your context.** All live credentials are in
 `/etc/secrets/*` on the Pi (env files written by `tasks/secrets.py`) and in
-the Bitwarden `raspi` folder. `group_data/all.py` itself contains only
-non-secret config plus references to BW field names (e.g. the `secret_env`
-dict in `HALO` maps env var → BW field name) — it is safe to read and to edit
+the `raspi` 1Password vault. `group_data/all.py` itself contains only
+non-secret config plus references to vault field names (e.g. the `secret_env`
+dict in `HALO` maps env var → field name) — it is safe to read and to edit
 when mirroring additions made to `group_data/all.example.py`.
 
 **Banned operations** (these dump plaintext into the conversation transcript):
@@ -176,8 +185,10 @@ when mirroring additions made to `group_data/all.example.py`.
 - `ssh raspi sudo grep ... /etc/secrets/...`
 - `ssh raspi -- env` after sourcing a secret file
 - Any `echo $SECRET_VAR`, `printenv FOO`, `set | grep ...` that surfaces a value
-- Reading raw values from `bw get item ...` (filenames, field *names*, and
-  `bw status`/membership checks are fine — values are not)
+- Reading raw values via `op read op://...`, `op item get <item>` (full JSON
+  includes values), or `bw get item ...`. Structure probes that strip values are
+  fine — item titles, field *labels*/types (`op item get X --format json | jq '[.fields[]|{label,type}]'`),
+  `op item list`, `op vault list` — values are not.
 
 **Allowed operations** (secret stays inside the shell, never echoed):
 - `ssh raspi sudo systemctl restart <svc>` / `status` / `journalctl -u <svc>` (provided the service doesn't log its own secrets)
@@ -189,15 +200,39 @@ when mirroring additions made to `group_data/all.example.py`.
 
 Rule of thumb: it's fine to *use* a secret in a remote command, never to *transport* it into the assistant's context.
 
-## Secrets (Bitwarden)
+## Secrets (1Password, pluggable)
 
-Items live in a Bitwarden folder named `raspi`. See `vault.py` docstring for the full item list and field structure. The `BW_SESSION` env var must be set before deploy — pyinfra fetches secrets locally at deploy time and writes them to `/etc/secrets/` on the Pi (never committed to git).
+`vault.py` is the single secret-access layer. A thin `Backend` (5 primitives:
+`read_login` / `read_field` / `read_ssh_key` / `write_field` / `item_exists`)
+sits under stable, vendor-neutral public helpers the task files call — so the
+store is never hardwired into tasks. Two backends ship:
 
-CIFS (NAS) credentials are consolidated in a single `cifs` Bitwarden item with per-share fields (`{share}_username`, `{share}_password`). The CIFS dict keys in `all.py` drive which fields are expected — adding a new CIFS mount automatically creates its credential file.
+- **`op` (default)** — 1Password CLI via the desktop-app integration. No session
+  env var; the first call prompts Touch ID (cached ~10 min). Enable in 1Password
+  → Settings → Developer → "Integrate with 1Password CLI".
+- **`bw` (legacy)** — Bitwarden CLI, needs `BW_SESSION`. Kept as a working
+  fallback; revisit if it drifts from the op backend.
+
+Select with `SECRET_BACKEND=op|bw` (default `op`) and `OP_VAULT=<name>` (default
+`raspi`). Items live in one vault/folder named `raspi`. See the `vault.py`
+docstring for the full item/field map. pyinfra fetches secrets locally at deploy
+time and writes them to `/etc/secrets/` on the Pi (never committed to git).
+
+Two 1Password migration quirks baked into the op backend: (1) an item's SSH key
+private half is read via `op read "op://<vault>/<item>/private key?ssh-format=openssh"`
+(the JSON value is empty for SSHKEY fields); (2) a field name containing a dot
+(e.g. beszel's `user_pw_<email>`) is stored by 1Password as a *section*
+`user_pw_<local@host>` + field `com`, so `read_field` also matches the
+reconstructed `section.label` form.
+
+CIFS (NAS) credentials are consolidated in a single `cifs` item with per-share
+fields (`{share}_username`, `{share}_password`). The CIFS dict keys in `all.py`
+drive which fields are expected — adding a new CIFS mount automatically creates
+its credential file.
 
 ### Rotating a secret
 
-`tasks/secrets.py` is the sole owner of writing all `/etc/secrets/*` files. Service tasks detect secret changes by hashing the on-disk file after it has been written — they never read from Bitwarden directly. To rotate a secret and restart the affected service in one shot:
+`tasks/secrets.py` is the sole owner of writing all `/etc/secrets/*` files. Service tasks detect secret changes by hashing the on-disk file after it has been written — they never read from the secret store directly. To rotate a secret and restart the affected service in one shot:
 
 ```fish
 uv run pyinfra inventory.py tasks/secrets.py tasks/<service>.py
@@ -225,7 +260,7 @@ A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the j
 
 ## SSO/OIDC (Kanidm)
 
-`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. **Two-deploy bootstrap is the canonical flow** for any new service that needs the Kanidm client secret: deploy 1 registers the client in Kanidm and writes the generated secret to BW; deploy 2 reads the secret out of BW and wires it into the service. Both deploys are otherwise idempotent.
+`tasks/kanidm.py` runs the server. `tasks/kanidm_oidc.py` is the integration step — creates persons and OAuth2 clients via the Kanidm REST API after the server is healthy. **Two-deploy bootstrap is the canonical flow** for any new service that needs the Kanidm client secret: deploy 1 registers the client in Kanidm and writes the generated secret to the vault; deploy 2 reads the secret back out and wires it into the service. Both deploys are otherwise idempotent.
 
 To wire a new service into SSO:
 
@@ -243,7 +278,7 @@ Pick whichever the service supports — the gating logic is the same in both:
 
 1. Sources `/etc/secrets/{service}.env`
 2. Polls a readiness probe (`/healthz` or equivalent)
-3. POSTs to the user-creation endpoint to bootstrap an admin from BW (`|| true` — repeat calls 4xx once the user exists, that's fine)
+3. POSTs to the user-creation endpoint to bootstrap an admin from the vault (`|| true` — repeat calls 4xx once the user exists, that's fine)
 4. POSTs to the auth endpoint to obtain a session/token
 5. GETs the IdP list and skips if the entry is already present (`grep -qx 'Kanidm'`)
 6. POSTs the IdP body with the bearer/cookie obtained in step 4
@@ -271,7 +306,7 @@ Note any version-specific quirks in code comments so the next person reading the
 
 ## Backups (restic)
 
-`tasks/restic.py` snapshots service state from `RESTIC["paths"]` to an encrypted repository on the `backups` CIFS share. Daily timer at 03:30 (`raspi-backup.timer`); weekly prune at Sun 04:30 (`raspi-prune.timer`, repo lock declared via `Conflicts=raspi-backup.service` so they cannot overlap, ntfy alert on failure). Repo password lives in the `restic` BW item.
+`tasks/restic.py` snapshots service state from `RESTIC["paths"]` to an encrypted repository on the `backups` CIFS share. Daily timer at 03:30 (`raspi-backup.timer`); weekly prune at Sun 04:30 (`raspi-prune.timer`, repo lock declared via `Conflicts=raspi-backup.service` so they cannot overlap, ntfy alert on failure). Repo password lives in the `restic` vault item.
 
 When adding a service with persistent state, append `/var/lib/{service}` to `RESTIC["paths"]` so future blank-slate restores cover it. Add regenerable subdirectories (caches, derived artwork, search indexes) to `RESTIC["excludes"]` to keep snapshots small and avoid overflowing tmpfs `/tmp` during packing.
 

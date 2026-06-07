@@ -6,7 +6,7 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import KANIDM_OIDC_CLIENTS, NETWORK, PIHOLE, SUBDOMAINS, UNBOUND
 
 # --- setupVars for unattended installer ---
@@ -86,12 +86,12 @@ server.shell(
 # SSO before requests reach Pi-hole, and the web UI is localhost-only anyway.
 
 _op_oidc = KANIDM_OIDC_CLIENTS.get("oauth2-proxy")
-_op_secret = bw.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
+_op_secret = vault.kanidm_oidc_secret(_op_oidc["secret_field"]) if _op_oidc else ""
 
 server.shell(
     name="Set Pi-hole admin password",
     commands=[
-        "pihole setpassword ''" if _op_secret else f"pihole setpassword '{bw.pihole_password()}'"
+        "pihole setpassword ''" if _op_secret else f"pihole setpassword '{vault.pihole_password()}'"
     ],
 )
 

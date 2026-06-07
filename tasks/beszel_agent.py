@@ -26,7 +26,7 @@ import subprocess
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import NETWORK
 from tasks.util import optional, restart_if_changed
 
@@ -113,7 +113,7 @@ else:
     # land in the deploy transcript. Sourced by the reconcile step below.
 
     if _token_fetch:
-        _tf_pw = bw.beszel_user_password(_token_fetch["email"])
+        _tf_pw = vault.beszel_user_password(_token_fetch["email"])
         files.put(
             name="Write beszel-agent bootstrap creds",
             src=io.BytesIO(

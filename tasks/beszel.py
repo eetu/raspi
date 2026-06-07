@@ -13,7 +13,7 @@ import json
 
 from pyinfra.operations import files, server, systemd
 
-import vault as bw
+import vault
 from tasks.util import optional, restart_if_changed
 
 BESZEL = optional("BESZEL")
@@ -82,7 +82,7 @@ else:
     # Agent: TOKEN (universal) + KEY (hub ed25519 pubkey) are written on-Pi after
     # the hub starts. TOKEN is only fetched once; KEY is synced on every deploy.
 
-    _admin = bw.beszel_admin_creds()
+    _admin = vault.beszel_admin_creds()
     _hub_env = f'USER_EMAIL="{_admin["email"]}"\nUSER_PASSWORD="{_admin["password"]}"\nUSER_CREATION=true\n'
 
     files.put(
@@ -248,7 +248,7 @@ WantedBy=multi-user.target
                     "email": u["email"],
                     "role": u.get("role", "user"),
                     "systems": u["systems"],
-                    "password": bw.beszel_user_password(u["email"]),
+                    "password": vault.beszel_user_password(u["email"]),
                 }
                 for u in _managed_users
             ]

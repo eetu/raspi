@@ -16,7 +16,7 @@ import subprocess
 from pyinfra import logger
 from pyinfra.operations import files, python, server, systemd
 
-import vault as bw
+import vault
 from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETWORK
 from tasks.util import optional, resolve_latest
 
@@ -39,7 +39,7 @@ else:
     # OIDC is optional — service deploys without SSO if not in KANIDM_OIDC_CLIENTS
     # or until Kanidm has generated the client secret on a previous deploy.
     _oidc_client = KANIDM_OIDC_CLIENTS.get("audiobookshelf")
-    _oidc_secret = bw.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
+    _oidc_secret = vault.kanidm_oidc_secret(_oidc_client["secret_field"]) if _oidc_client else ""
     _idm_domain = f"idm.{NETWORK['domain']}"
 
     _image = (
@@ -78,7 +78,7 @@ WantedBy=multi-user.target
 """
 
     _quadlet_hash = hashlib.sha256(quadlet.encode()).hexdigest()
-    _creds = bw.abs_creds()
+    _creds = vault.abs_creds()
     # Pre-encode as JSON strings so they're safely embeddable in shell regardless of special chars
     _abs_username_json = json.dumps(_creds["username"])
     _abs_password_json = json.dumps(_creds["password"])
@@ -289,9 +289,9 @@ print('yes' if any(f['fullPath'] == '/audiobooks' for l in libs for f in l.get('
         if not token:
             logger.warning("ABS: no API key found on Pi, skipping Bitwarden update")
             return
-        if bw.abs_api_key() == token:
+        if vault.abs_api_key() == token:
             return
-        bw.save_abs_api_key(token)
+        vault.save_abs_api_key(token)
         logger.info("ABS: synced API key to Bitwarden")
 
     python.call(
