@@ -2,17 +2,19 @@
 
 `camera` feature. v1 is a native systemd service (not a container): picamera2
 reaches /dev/* directly, sidestepping libcamera-in-container passthrough. The
-app source is shipped from the sibling ../ocular working tree — build the
-frontend first (`cd ../ocular/frontend && yarn build`); this task raises if
-dist/ is missing rather than ship a backend with no UI.
+app ships as a self-contained tarball (backend src + built SPA) published to
+GitHub releases by ../ocular's release workflow — set OCULAR["version"] to a
+channel: "main" tracks the branch (rebuilt each push), or pin "vX.Y.Z". The Pi
+pulls it directly (repo is public; the LAN-only egress block is scoped to the
+running ocular.service cgroup, not this deploy shell).
 
 Layout on raspo:
-  /opt/ocular/src    backend package (run via PYTHONPATH)
-  /opt/ocular/dist   built Svelte SPA
+  /opt/ocular/src    backend package (run via PYTHONPATH), from the tarball
+  /opt/ocular/dist   built Svelte SPA, from the tarball
   /opt/ocular/.venv  venv (--system-site-packages → picamera2/numpy/Pillow from
                      apt; fastapi/uvicorn from pip)
   /etc/ocular/config.json   rendered from the OCULAR dict (camera + detectors)
-  /var/lib/ocular    state (revolution count)
+  /var/lib/ocular    state (revolution history DB — ocular.db)
 
 Egress: "ocular" is in tasks/network_restrict.py RESTRICTED (LAN-only). The hub
 port is opened to the LAN by tasks/hardening.py only on the camera host.
@@ -21,25 +23,23 @@ port is opened to the LAN by tasks/hardening.py only on the camera host.
 import hashlib
 import io
 import json
-from pathlib import Path
 
+from pyinfra import host
 from pyinfra.operations import files, server, systemd
 
 from tasks.util import optional, restart_if_changed
 
 OCULAR = optional("OCULAR")
 
+# ocular is camera-node-only. deploy.py already gates the task by the `camera`
+# feature, but running this file directly (`pyinfra inventory.py tasks/ocular.py`)
+# bypasses that gating — and since OCULAR is a global in all.py (never None), the
+# install block would otherwise run on every targeted host. Guard on the host's
+# own FEATURES so a direct run is a no-op anywhere but the camera node.
+_is_camera_node = "camera" in set(host.data.get("FEATURES") or ())
+
 # Runtime deps installed into the venv (system site-packages provides the rest).
 _VENV_DEPS = "'fastapi>=0.136' 'uvicorn>=0.47'"
-
-
-def _tree_hash(root: Path) -> str:
-    h = hashlib.sha256()
-    for p in sorted(root.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(root).as_posix().encode())
-            h.update(p.read_bytes())
-    return h.hexdigest()
 
 
 if OCULAR is None:
@@ -50,15 +50,14 @@ if OCULAR is None:
         enabled=False,
         daemon_reload=True,
     )
+elif not _is_camera_node:
+    # Not the camera node — do nothing (never install ocular here).
+    pass
 else:
-    _ocular_repo = Path(__file__).resolve().parents[2] / "ocular"
-    _src = _ocular_repo / "backend" / "src"
-    _dist = _ocular_repo / "frontend" / "dist"
-
-    if not (_dist / "index.html").is_file():
-        raise RuntimeError(
-            f"ocular dist not built at {_dist} — run `cd {_ocular_repo}/frontend && yarn build` first"
-        )
+    VERSION = OCULAR.get("version", "main")
+    BUNDLE_URL = (
+        f"https://github.com/eetu/ocular/releases/download/{VERSION}/ocular-{VERSION}.tar.gz"
+    )
 
     _config = {"camera": OCULAR["camera"], "detectors": {"revolution": OCULAR["revolution"]}}
     _config_json = json.dumps(_config, indent=2)
@@ -74,22 +73,29 @@ else:
             present=True,
         )
 
-    files.sync(
-        name="Sync ocular backend src",
-        src=str(_src),
-        dest="/opt/ocular/src",
-        delete=True,
-        user="root",
-        group="root",
-    )
-
-    files.sync(
-        name="Sync ocular SPA dist",
-        src=str(_dist),
-        dest="/opt/ocular/dist",
-        delete=True,
-        user="root",
-        group="root",
+    # Pull the published tarball (src + built SPA) on the Pi. Keyed on the asset's
+    # sha256: a fresh "main" build is picked up and the service restarted; a pinned
+    # vX.Y.Z is a no-op once installed. The restart is fail-soft so the very first
+    # deploy (no unit yet) still extracts — systemd.service below then starts it.
+    server.shell(
+        name=f"Fetch + extract ocular bundle ({VERSION})",
+        commands=[
+            f"""
+            set -e
+            SUM=$(curl -fsSL "{BUNDLE_URL}.sha256")
+            STAMP=/opt/ocular/.bundle-sha256
+            if [ "$(cat "$STAMP" 2>/dev/null)" != "$SUM" ]; then
+              TMP=$(mktemp)
+              curl -fsSL "{BUNDLE_URL}" -o "$TMP"
+              echo "$SUM  $TMP" | sha256sum -c -
+              rm -rf /opt/ocular/src /opt/ocular/dist
+              tar -xzf "$TMP" -C /opt/ocular
+              rm -f "$TMP"
+              echo "$SUM" > "$STAMP"
+              systemctl restart ocular 2>/dev/null || true
+            fi
+            """,
+        ],
     )
 
     files.put(
@@ -169,10 +175,10 @@ WantedBy=multi-user.target
         mode="644",
     )
 
-    # Restart on any change to the unit, config, backend src, or built dist.
-    _static_hash = hashlib.sha256(
-        (service_unit + _config_json + _tree_hash(_src) + _tree_hash(_dist)).encode()
-    ).hexdigest()
+    # Restart on a unit/config/version change. Bundle *content* changes are
+    # handled by the fetch step above (it restarts when the asset sha changes),
+    # which is what makes the rolling "main" channel pick up each new build.
+    _static_hash = hashlib.sha256((service_unit + _config_json + VERSION).encode()).hexdigest()
 
     systemd.service(
         name="Enable ocular",
@@ -183,6 +189,6 @@ WantedBy=multi-user.target
     )
 
     server.shell(
-        name="Restart ocular if code/config/unit changed",
+        name="Restart ocular if config/unit/version changed",
         commands=[restart_if_changed("ocular", _static_hash)],
     )
