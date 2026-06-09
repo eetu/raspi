@@ -256,7 +256,7 @@ alerting:
             _ep(
                 "ocular",
                 f"http://{OCULAR['host']}:{OCULAR['port']}/status",
-                group="ops",
+                group="apps",
                 comment="Camera node (raspo) — unauth liveness probed directly over the LAN.",
             )
         )
