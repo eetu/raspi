@@ -43,6 +43,7 @@ NAVIDROME = optional("NAVIDROME")
 NTFY = optional("NTFY")
 OCULAR = optional("OCULAR")
 RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
+REPRESENT = optional("REPRESENT")
 SCRIBE = optional("SCRIBE")
 SHELF = optional("SHELF")
 STT = optional("STT")
@@ -107,6 +108,7 @@ ROUTES = [
     ("music", NAVIDROME, "music"),
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
+    ("represent", REPRESENT, "represent"),
     ("scribe", SCRIBE, "scribe"),
     ("shelf", SHELF, "shelf"),
     ("syncthing", SYNCTHING, "syncthing"),

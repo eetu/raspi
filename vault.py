@@ -54,6 +54,7 @@ Item / field map (one vault/folder, items named as below):
                                                  generated locally on first deploy, persisted)
   chat              login  (unused)             fields: session_key (64-byte hex), mcp_api_key (32),
                                                mcp_server_key (32) — all auto-generated, persisted
+  represent         login  (unused)             field: session_key (64-byte hex, auto)
   scribe            login  (unused)             fields: session_key (64-byte hex, auto),
                                                press_token (hand-pasted; must match the mini's
                                                  `mini/scribe-press` api_key field),
@@ -420,6 +421,12 @@ def chat_mcp_api_key() -> str:
 def chat_mcp_server_key() -> str:
     """Bearer that gates inbound clients hitting chat-mcp's /mcp."""
     return _get_or_create("chat", "mcp_server_key", lambda: secrets.token_hex(32))
+
+
+def represent_session_key() -> str:
+    """represent SESSION_KEY (64-byte hex) — the signed cookie is the entire
+    auth credential, so the key must be stable across restarts."""
+    return _get_or_create("represent", "session_key", lambda: secrets.token_hex(64))
 
 
 def scribe_session_key() -> str:

@@ -43,6 +43,7 @@ DEPLOY = [
     ("kanidm_oidc", "sso"),
     ("oauth2_proxy", "sso"),
     ("memos", "apps"),
+    ("represent", "apps"),
     ("chat", "chat"),
     ("mcp_chat", "chat"),
     ("shim", "scribe"),

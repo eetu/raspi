@@ -55,6 +55,7 @@ else:
     NTFY = optional("NTFY")
     OCULAR = optional("OCULAR")
     RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
+    REPRESENT = optional("REPRESENT")
     SCRIBE = optional("SCRIBE")
     SHELF = optional("SHELF")
     SHIM = optional("SHIM")
@@ -159,6 +160,14 @@ alerting:
         )
     if AUDIOBOOKSHELF:
         _endpoints.append(_ep("Audiobookshelf", f"https://audiobooks.{DOMAIN}", group="media"))
+    if REPRESENT:
+        _endpoints.append(
+            _ep(
+                "Represent",
+                f"http://{REPRESENT['host']}:{REPRESENT['port']}/status",
+                group="apps",
+            )
+        )
     if SCRIBE:
         _endpoints.append(
             _ep(

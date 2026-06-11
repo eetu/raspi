@@ -134,6 +134,15 @@ CHAT = {
     },
 }
 
+# Represent — markdown demo-script presenter (../represent). Subdomain +
+# public flag live on its KANIDM_OIDC_CLIENTS entry (the chat/scribe pattern).
+REPRESENT = {
+    "host": "127.0.0.1",
+    "port": 3008,
+    "image": "ghcr.io/eetu/represent:main",
+    "env": {},
+}
+
 # Scribe — self-hosted Audible library mirror. Talks to shim over loopback,
 # ships ffmpeg work to scribe-press on the mini. The library/ tree on the
 # CIFS audiobooks share is what audiobookshelf reads; original/ is the
@@ -373,6 +382,7 @@ RESTIC = {
         "/var/lib/wg-portal",
         "/var/lib/beszel",
         "/var/lib/chat",
+        "/var/lib/represent",  # represent.db (profiles/projects/documents)
         "/var/lib/scribe",
         "/var/lib/shim",
         "/etc/pihole",  # gravity.db (blocklists) + custom.list (local DNS) + setupVars
@@ -621,6 +631,14 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "scribe_client_secret",
+    },
+    "represent": {
+        "display_name": "Represent",
+        "url_prefix": "represent",
+        "public": True,
+        "redirect_path": "/auth/callback",
+        "scopes": ["openid", "profile", "email"],
+        "secret_field": "represent_client_secret",
     },
 }
 

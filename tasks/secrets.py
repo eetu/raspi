@@ -22,6 +22,7 @@ VAULTWARDEN = optional("VAULTWARDEN")
 MEMOS = optional("MEMOS")
 CHAT = optional("CHAT")
 MCP_CHAT = optional("MCP_CHAT")
+REPRESENT = optional("REPRESENT")
 SCRIBE = optional("SCRIBE")
 SHIM = optional("SHIM")
 SHELF = optional("SHELF")
@@ -177,6 +178,26 @@ if feature("chat") and MCP_CHAT:
         f"CHAT_MCP_API_KEY={_chat_mcp_api_key}\nCHAT_MCP_SERVER_KEY={vault.chat_mcp_server_key()}\n",
         "/etc/secrets/mcp-chat.env",
     )
+
+# --- Represent ---
+# Same pattern as chat. SESSION_KEY is auto-generated on first deploy; OIDC
+# vars are written only once Kanidm has produced the client secret on a
+# previous deploy (until then represent runs on forward-auth headers only).
+
+if feature("apps") and REPRESENT:
+    _rep_oidc = KANIDM_OIDC_CLIENTS.get("represent")
+    _rep_oidc_secret = vault.kanidm_oidc_secret(_rep_oidc["secret_field"]) if _rep_oidc else ""
+    _rep_lines = [f"SESSION_KEY={vault.represent_session_key()}"]
+    if _rep_oidc_secret:
+        _rep_lines.extend(
+            [
+                f"OIDC_ISSUER=https://idm.{DOMAIN}/oauth2/openid/represent",
+                "OIDC_CLIENT_ID=represent",
+                f"OIDC_CLIENT_SECRET={_rep_oidc_secret}",
+                f"OIDC_REDIRECT_URL=https://represent.{DOMAIN}/auth/callback",
+            ]
+        )
+    _put_secret("represent.env", "\n".join(_rep_lines) + "\n", "/etc/secrets/represent.env")
 
 # --- Scribe ---
 # Same pattern as chat. OIDC vars are written only once Kanidm has produced
