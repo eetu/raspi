@@ -44,6 +44,7 @@ DEPLOY = [
     ("oauth2_proxy", "sso"),
     ("memos", "apps"),
     ("represent", "apps"),
+    ("supersaw", "apps"),
     ("chat", "chat"),
     ("mcp_chat", "chat"),
     ("shim", "scribe"),

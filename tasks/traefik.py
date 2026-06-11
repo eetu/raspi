@@ -47,6 +47,7 @@ REPRESENT = optional("REPRESENT")
 SCRIBE = optional("SCRIBE")
 SHELF = optional("SHELF")
 STT = optional("STT")
+SUPERSAW = optional("SUPERSAW")
 SYNCTHING = optional("SYNCTHING")
 TTS = optional("TTS")
 VAULTWARDEN = optional("VAULTWARDEN")
@@ -91,6 +92,9 @@ if RASPI_DASHBOARD and _oauth2_active:
 # human route; the /status monitor router below bypasses oauth2 for gatus.
 if OCULAR and _oauth2_active:
     _gated_hosts.append("ocular")
+# supersaw is a static SPA with no auth of its own — gate it at the edge.
+if SUPERSAW and _oauth2_active:
+    _gated_hosts.append("supersaw")
 
 # Optional route registry: (router/service name, gating dict, default subdomain).
 # The subdomain prefix comes from the dict's own `url_prefix` when set
@@ -114,6 +118,7 @@ ROUTES = [
     ("syncthing", SYNCTHING, "syncthing"),
     ("beszel", BESZEL, "beszel"),
     ("dashboard", RASPI_DASHBOARD, "dashboard"),
+    ("supersaw", SUPERSAW, "supersaw"),
     ("ocular", OCULAR, "ocular"),
     ("ai", AI, "ai"),
     ("comfy", COMFY, "comfy"),

@@ -492,6 +492,18 @@ RASPI_DASHBOARD = {
     "beszel_user": "dashboard@example.com",
 }
 
+# supersaw — browser synth (static SPA served by nginx, all audio client-side).
+# Stateless, no secrets; behind oauth2-proxy (public: False). The port is baked
+# into the image's nginx.conf — keep in sync with the supersaw repo.
+SUPERSAW = {
+    "host": "127.0.0.1",
+    "port": 3013,
+    "url_prefix": "supersaw",
+    "image": "ghcr.io/eetu/supersaw:main",
+    "public": False,
+    "memory_max": "48M",
+}
+
 # ocular — camera-vision app on a separate camera node (e.g. a Pi 3 B+ with a
 # camera). raspi only proxies it: Traefik upstream is the node's LAN IP (the
 # AI/COMFY off-host pattern). The camera/detector block is rendered into
@@ -680,6 +692,7 @@ _SUBDOMAIN_NAMES = (
     "SHELF",
     "RASPI_DASHBOARD",
     "OCULAR",
+    "SUPERSAW",
 )
 _SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(

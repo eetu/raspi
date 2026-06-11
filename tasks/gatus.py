@@ -58,6 +58,7 @@ else:
     REPRESENT = optional("REPRESENT")
     SCRIBE = optional("SCRIBE")
     SHELF = optional("SHELF")
+    SUPERSAW = optional("SUPERSAW")
     SHIM = optional("SHIM")
     SYNCTHING = optional("SYNCTHING")
     VAULTWARDEN = optional("VAULTWARDEN")
@@ -166,6 +167,15 @@ alerting:
                 "Represent",
                 f"http://{REPRESENT['host']}:{REPRESENT['port']}/status",
                 group="apps",
+            )
+        )
+    if SUPERSAW:
+        _endpoints.append(
+            _ep(
+                "Supersaw",
+                f"http://{SUPERSAW['host']}:{SUPERSAW['port']}/status",
+                group="apps",
+                comment="nginx static SPA — /status is the unauthenticated liveness route.",
             )
         )
     if SCRIBE:
