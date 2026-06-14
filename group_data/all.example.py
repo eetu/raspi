@@ -269,6 +269,23 @@ FMI_PV_FORECAST = {
     },
 }
 
+# Optional. A private updater (built locally, pushed to your LAN registry) that
+# writes generic reserve-market profit rows straight into Halo's SQLite. Comment
+# the block to drop the feed. Credentials live in the `reserve` vault item (a
+# LOGIN: username=email, password; plus an `api_base_url` field), wired by
+# vault.reserve_creds() — never here. Deployed by tasks/halo.py alongside Halo.
+RESERVE = {
+    "image": "registry.lan:5000/reserve-updater:latest",  # your LAN (zot) registry
+    "schedule": "*-*-* 9..18/3:00:00",  # OnCalendar — daytime only (09,12,15,18)
+    "jitter": "30min",  # RandomizedDelaySec — small spread; nobody checks at night
+    "env": {
+        "RESERVE_PROVIDER": "reserve",
+        "RESERVE_DISPLAY_NAME": "Reservimarkkina",
+        "RESERVE_STEPS": "day,month,year",
+        "RESERVE_ACTIVATION_FLOOR": "2025-11-01",  # earliest data; never epoch
+    },
+}
+
 # Optional. Comment the entire block to retire ABS without deleting
 # state — tasks/audiobookshelf.py drops into a cleanup branch (stop +
 # disable systemd unit, leave /var/lib/audiobookshelf, BW item, and

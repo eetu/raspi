@@ -18,6 +18,7 @@ from tasks.util import optional
 
 HALO = optional("HALO")
 FMI_PV_FORECAST = optional("FMI_PV_FORECAST")
+RESERVE = optional("RESERVE")
 
 
 if HALO is None:
@@ -33,6 +34,13 @@ if HALO is None:
     systemd.service(
         name="Stop + disable fmi-pv-forecast.timer",
         service="fmi-pv-forecast.timer",
+        running=False,
+        enabled=False,
+        daemon_reload=True,
+    )
+    systemd.service(
+        name="Stop + disable reserve.timer",
+        service="reserve.timer",
         running=False,
         enabled=False,
         daemon_reload=True,
@@ -231,6 +239,78 @@ WantedBy=timers.target
         systemd.service(
             name="Enable fmi-pv-forecast.timer",
             service="fmi-pv-forecast.timer",
+            enabled=True,
+            running=True,
+            daemon_reload=True,
+        )
+
+    # --- Reserve-market profit updater: oneshot service + timer ---------------
+    # Runs a private updater image (from the LAN registry) that writes generic
+    # reserve_* rows straight into Halo's SQLite volume. Independently optional —
+    # comment RESERVE in group_data/all.py to drop the feed. Needs internet egress
+    # (left out of network_restrict). Creds come from /etc/secrets/reserve.env.
+    if RESERVE is None:
+        systemd.service(
+            name="Stop + disable reserve.timer",
+            service="reserve.timer",
+            running=False,
+            enabled=False,
+            daemon_reload=True,
+        )
+    else:
+        _reserve_env_flags = " ".join(f"-e {k}={v}" for k, v in RESERVE["env"].items())
+
+        _reserve_runner_script = f"""\
+#!/bin/bash
+set -euo pipefail
+podman run --rm --pull=newer --network=host \\
+  -v /var/lib/halo:/data \\
+  --env-file /etc/secrets/reserve.env {_reserve_env_flags} \\
+  {RESERVE["image"]}
+"""
+
+        _reserve_service_unit = """\
+[Unit]
+Description=Reserve-market profit updater — writes into Halo's SQLite
+After=network-online.target halo.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/reserve-update.sh
+"""
+
+        _reserve_timer_unit = f"""\
+[Unit]
+Description=Periodic reserve-market profit refresh
+
+[Timer]
+OnCalendar={RESERVE["schedule"]}
+RandomizedDelaySec={RESERVE.get("jitter", "0")}
+OnBootSec=4min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+        for dest, content, mode in [
+            ("/usr/local/bin/reserve-update.sh", _reserve_runner_script, "755"),
+            ("/etc/systemd/system/reserve.service", _reserve_service_unit, "644"),
+            ("/etc/systemd/system/reserve.timer", _reserve_timer_unit, "644"),
+        ]:
+            files.put(
+                name=f"Write {dest.split('/')[-1]}",
+                src=io.BytesIO(content.encode()),
+                dest=dest,
+                user="root",
+                group="root",
+                mode=mode,
+            )
+
+        systemd.service(
+            name="Enable reserve.timer",
+            service="reserve.timer",
             enabled=True,
             running=True,
             daemon_reload=True,

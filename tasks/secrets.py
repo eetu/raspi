@@ -18,6 +18,7 @@ from tasks.util import feature, optional
 
 RESTIC = optional("RESTIC")
 HALO = optional("HALO")
+RESERVE = optional("RESERVE")
 VAULTWARDEN = optional("VAULTWARDEN")
 MEMOS = optional("MEMOS")
 CHAT = optional("CHAT")
@@ -82,6 +83,10 @@ if feature("apps") and HALO:
         f"{var}={vault.secret_field('halo', field)}" for var, field in HALO["secret_env"].items()
     ]
     _put_secret("halo.env", "\n".join(_halo_secret_lines) + "\n", "/etc/secrets/halo.env")
+
+if feature("apps") and RESERVE:
+    _reserve_lines = [f"{k}={v}" for k, v in vault.reserve_creds().items()]
+    _put_secret("reserve.env", "\n".join(_reserve_lines) + "\n", "/etc/secrets/reserve.env")
 
 # --- Vaultwarden ---
 # Kanidm admin/idm_admin passwords are generated on-Pi by `kanidmd recover-account`
