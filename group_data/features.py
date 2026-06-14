@@ -53,6 +53,7 @@ DEPLOY = [
     ("yarr", "apps"),
     ("syncthing", "apps"),
     ("vuio", "apps"),
+    ("zot", "apps"),
     ("beszel", "monitoring"),
     ("raspi_dashboard", "monitoring"),
     # network_monitor pairs with network_restrict (both base): any host that

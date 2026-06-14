@@ -53,6 +53,7 @@ TTS = optional("TTS")
 VAULTWARDEN = optional("VAULTWARDEN")
 WGPORTAL = optional("WGPORTAL")
 YARR = optional("YARR")
+ZOT = optional("ZOT")
 
 VERSION = TRAEFIK["version"]
 BINARY_URL = (
@@ -119,6 +120,9 @@ ROUTES = [
     ("beszel", BESZEL, "beszel"),
     ("dashboard", RASPI_DASHBOARD, "dashboard"),
     ("supersaw", SUPERSAW, "supersaw"),
+    # Private OCI registry — intentionally NOT in _gated_hosts, so no oauth2
+    # forward-auth (podman can't do interactive SSO). LAN-only via internal DNS.
+    ("registry", ZOT, "registry"),
     ("ocular", OCULAR, "ocular"),
     ("ai", AI, "ai"),
     ("comfy", COMFY, "comfy"),
