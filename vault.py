@@ -28,6 +28,8 @@ Item / field map (one vault/folder, items named as below):
   halo                     secure note         fields: one per HALO["secret_env"] in group_data/all.py
                                                (tomorrow_io_api_key, solis_key_id, solis_key_secret,
                                                hue_bridge_user)
+  reserve                  login               username=email, password; field: api_base_url
+                                               (reserve-market updater; via vault.reserve_creds())
   pihole            login  password=admin_password
   dockerhub         login  username/password   (PAT from hub.docker.com/settings/security)
   vaultwarden       login  password=admin_password (plain, for logging in)
@@ -313,6 +315,17 @@ def save_abs_api_key(token: str) -> None:
 def wg_portal_creds() -> dict:
     login = _b.read_login("wireguard-portal")
     return {**login, "api_token": _b.read_field("wireguard-portal", "api_token")}
+
+
+def reserve_creds() -> dict:
+    """Login item `reserve`: username=email, password; plus the `api_base_url`
+    field. Returns the RESERVE_* env the updater reads."""
+    login = _b.read_login("reserve")
+    return {
+        "RESERVE_EMAIL": login["username"],
+        "RESERVE_PASSWORD": login["password"],
+        "RESERVE_API_BASE_URL": _b.read_field("reserve", "api_base_url"),
+    }
 
 
 def beszel_user_password(email: str) -> str:
