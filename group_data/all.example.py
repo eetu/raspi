@@ -385,6 +385,7 @@ RESTIC = {
         "/var/lib/represent",  # represent.db (profiles/projects/documents)
         "/var/lib/scribe",
         "/var/lib/shim",
+        "/var/lib/zot",  # private OCI registry blob store (manifests + layers)
         "/etc/pihole",  # gravity.db (blocklists) + custom.list (local DNS) + setupVars
         "/etc/traefik/acme.json",
     ],
@@ -502,6 +503,24 @@ SUPERSAW = {
     "image": "ghcr.io/eetu/supersaw:main",
     "public": False,
     "memory_max": "48M",
+}
+
+# zot — self-hosted private OCI image registry (native Go binary, not a
+# container). LAN-only with NO auth (public: False, route not oauth2-gated):
+# push from a dev box over the LAN with `podman push registry.{domain}/app:tag`.
+# The wildcard cert is Let's Encrypt-trusted, so no insecure-registry config is
+# needed client-side. Blob store lives on local SD ext4 (dedupe needs hardlinks,
+# which CIFS lacks) and is backed up to the NAS via restic. No secrets.
+# `keep_tags` drives the retention policy (most-recently-pushed tags kept/repo;
+# untagged manifests GC'd). Belongs to the `apps` feature.
+ZOT = {
+    "host": "127.0.0.1",
+    "port": 5000,
+    "url_prefix": "registry",
+    "version": "v2.1.17",
+    "public": False,
+    "memory_max": "256M",
+    "keep_tags": 10,
 }
 
 # ocular — camera-vision app on a separate camera node (e.g. a Pi 3 B+ with a
@@ -693,6 +712,7 @@ _SUBDOMAIN_NAMES = (
     "RASPI_DASHBOARD",
     "OCULAR",
     "SUPERSAW",
+    "ZOT",
 )
 _SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(

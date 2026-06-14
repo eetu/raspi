@@ -65,6 +65,7 @@ else:
     VUIO = optional("VUIO")
     WGPORTAL = optional("WGPORTAL")
     YARR = optional("YARR")
+    ZOT = optional("ZOT")
 
     DOMAIN = NETWORK["domain"]
 
@@ -212,6 +213,10 @@ alerting:
         _endpoints.append(_ep("WireGuard Portal", f"https://vpn.{DOMAIN}", group="ops"))
     if NTFY:
         _endpoints.append(_ep("ntfy", f"https://ntfy.{DOMAIN}", group="ops"))
+    if ZOT:
+        # /v2/ is the OCI dist-spec API version check — returns 200 (body `{}`)
+        # unauthenticated, so the default [STATUS] == 200 condition suffices.
+        _endpoints.append(_ep("Registry", f"https://registry.{DOMAIN}/v2/", group="ops"))
     if VAULTWARDEN:
         _endpoints.append(_ep("Vaultwarden", f"https://vault.{DOMAIN}", group="apps"))
     if NAVIDROME:

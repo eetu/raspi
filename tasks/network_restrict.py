@@ -41,6 +41,9 @@ RESTRICTED = [
     "syncthing",
     "wg-portal",
     "vuio",
+    # zot serves a purely private registry — no upstream sync/mirror, so it
+    # never needs to reach the internet. Pushes/pulls are LAN ingress, unaffected.
+    "zot",
 ]
 
 nft_rules = f"""\
