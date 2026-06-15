@@ -435,7 +435,7 @@ wheels = [
 
 [[package]]
 name = "pyinfra"
-version = "3.8.0"
+version = "3.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -449,9 +449,9 @@ dependencies = [
     { name = "typeguard" },
     { name = "types-paramiko" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/57/95df8eb3decd127802fe9b5b19c0e00fa77374b2ff1ea9e23c4f108035dd/pyinfra-3.8.0.tar.gz", hash = "sha256:a00562c9cb87d8a911c9d08035885f341bb423a93488ebd2e1fce594b104c0e2", size = 651818, upload-time = "2026-05-04T12:26:18.376Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/02/6ba292a33b6fbd342b031880e618281566c985ad73908127b56c02520495/pyinfra-3.9.2.tar.gz", hash = "sha256:035a94c7d0a78059c86279f9292242ddf8b883959296e033aa0033db7f14e517", size = 619478, upload-time = "2026-06-07T21:05:48.181Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/3d/744ef64322068c264425e7491c566bc63575ca5f304ed08e46e7210741f7/pyinfra-3.8.0-py3-none-any.whl", hash = "sha256:023ae01ef1326b670f88ef77b28b2a83039ef1551faa554a74cbd50ba923aba4", size = 299052, upload-time = "2026-05-04T12:26:19.726Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/d1/530b126c4bf5fa5017039b15982043b2cdeba83eb2234bd0500699a6482c/pyinfra-3.9.2-py3-none-any.whl", hash = "sha256:098190febb48ba9cdf07c24efbd0308da9ca2ad40e08d676f21a374cc38532ba", size = 311346, upload-time = "2026-06-07T21:05:46.425Z" },
 ]
 
 [[package]]
@@ -515,7 +515,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyinfra", specifier = ">=3.8.0" }]
+requires-dist = [{ name = "pyinfra", specifier = ">=3.9.2" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.15.16" }]
