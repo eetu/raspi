@@ -49,6 +49,7 @@ SHELF = optional("SHELF")
 STT = optional("STT")
 SUPERSAW = optional("SUPERSAW")
 SYNCTHING = optional("SYNCTHING")
+TRACKER = optional("TRACKER")
 TTS = optional("TTS")
 VAULTWARDEN = optional("VAULTWARDEN")
 WGPORTAL = optional("WGPORTAL")
@@ -111,6 +112,9 @@ ROUTES = [
     ("vault", VAULTWARDEN, "vault"),
     ("rss", YARR, "rss"),
     ("music", NAVIDROME, "music"),
+    # tracker is intentionally NOT in _gated_hosts — LAN-only, no oauth2-proxy
+    # (the backend runs with TRACKER_OPEN=1). LAN reachability via internal DNS.
+    ("tracker", TRACKER, "tracker"),
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
     ("represent", REPRESENT, "represent"),

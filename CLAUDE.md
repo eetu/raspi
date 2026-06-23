@@ -249,7 +249,7 @@ Examples:
 All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
 
 ### Network egress restrictions
-LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, mcp-chat, navidrome, ntfy, oauth2-proxy, ocular, raspi-dashboard, represent, scribe, syncthing, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
+LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, mcp-chat, navidrome, ntfy, oauth2-proxy, ocular, raspi-dashboard, represent, scribe, syncthing, tracker, wg-portal, vuio) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
 
 ### Network breach monitoring
 A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
@@ -324,6 +324,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 3004 | Scribe shim (loopback) |
 | 3006 | Scribe shelf |
 | 3008 | Represent |
+| 3010 | Tracker |
 | 4533 | Navidrome |
 | 5230 | Memos |
 | 5335 | Unbound (DNS) |

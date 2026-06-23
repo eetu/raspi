@@ -39,6 +39,8 @@ RESTRICTED = [
     # LAN. The endpoint is bearer-gated; egress is read-only image
     # fetches.
     "syncthing",
+    # tracker serves a local NAS module collection — no internet needed.
+    "tracker",
     "wg-portal",
     "vuio",
     # zot serves a purely private registry — no upstream sync/mirror, so it

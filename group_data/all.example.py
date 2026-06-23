@@ -338,6 +338,14 @@ CIFS = {
         "vers": "2.0",
         "sec": "ntlmsspi",
     },
+    # tracker reads AND renames/moves modules in place, so this mount is
+    # read-write (the CIFS default — file_mode/dir_mode 0755, uid/gid 1000).
+    "mods": {
+        "share": "//zenwifi/mods",
+        "mountpoint": "/mnt/mods",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+    },
     "movies": {
         "share": "//zenwifi/movies",
         "mountpoint": "/mnt/movies",
@@ -391,6 +399,7 @@ RESTIC = {
         "/var/lib/vaultwarden",
         "/var/lib/kanidm",
         "/var/lib/navidrome",
+        "/var/lib/tracker",  # tracker.db (path index + libopenmpt metadata cache)
         "/var/lib/memos",
         "/var/lib/gatus",
         "/var/lib/yarr",
@@ -454,6 +463,17 @@ NAVIDROME = {
     "public": True,
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
+}
+
+# FastTracker 2-style player for the NAS module collection (group/artist/song).
+# LAN-only: no oauth2-proxy in front (see tasks/traefik.py — tracker is NOT in
+# _gated_hosts), so the container runs with TRACKER_OPEN=1 to skip the
+# forward-auth header assertion. Egress-restricted in tasks/network_restrict.py.
+TRACKER = {
+    "host": "127.0.0.1",
+    "port": 3010,
+    "url_prefix": "tracker",
+    "image": "ghcr.io/eetu/tracker:main",
 }
 
 MEMOS = {
@@ -718,6 +738,7 @@ _SUBDOMAIN_NAMES = (
     "NTFY",
     "YARR",
     "NAVIDROME",
+    "TRACKER",
     "SYNCTHING",
     "KANIDM",
     "AI",

@@ -34,6 +34,7 @@ DEPLOY = [
     ("halo", "apps"),
     ("audiobookshelf", "apps"),
     ("navidrome", "apps"),
+    ("tracker", "apps"),
     ("ntfy", "monitoring"),
     ("gatus", "monitoring"),
     ("trivy", "monitoring"),
