@@ -47,7 +47,11 @@ def _put_secret(name, content, dest, mode="600", group="root"):
 
 if feature("storage"):
     for _name in CIFS:
-        _put_secret(f"cifs-{_name}", vault.cifs_creds(_name), f"/etc/secrets/cifs-{_name}")
+        # A share may borrow another's vault credentials via a "creds" alias
+        # (e.g. mods reuses music's login) instead of its own *_username/
+        # *_password fields. Defaults to the share's own name.
+        _creds_key = CIFS[_name].get("creds", _name)
+        _put_secret(f"cifs-{_name}", vault.cifs_creds(_creds_key), f"/etc/secrets/cifs-{_name}")
 
 # --- Cloudflare API token — used by traefik's DNS-01 challenge (`proxy`) and
 # the DNS record management in tasks/cloudflare_dns.py (`dns`). ---

@@ -340,11 +340,13 @@ CIFS = {
     },
     # tracker reads AND renames/moves modules in place, so this mount is
     # read-write (the CIFS default — file_mode/dir_mode 0755, uid/gid 1000).
+    # Reuses the `music` NAS login (no separate mods_* vault fields needed).
     "mods": {
         "share": "//zenwifi/mods",
         "mountpoint": "/mnt/mods",
         "vers": "2.0",
         "sec": "ntlmsspi",
+        "creds": "music",
     },
     "movies": {
         "share": "//zenwifi/movies",
