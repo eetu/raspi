@@ -35,6 +35,9 @@ DEPLOY = [
     ("audiobookshelf", "apps"),
     ("navidrome", "apps"),
     ("tracker", "apps"),
+    # transcoder before party so the loopback sidecar is up when party starts.
+    ("transcoder", "apps"),
+    ("party", "apps"),
     ("ntfy", "monitoring"),
     ("gatus", "monitoring"),
     ("trivy", "monitoring"),

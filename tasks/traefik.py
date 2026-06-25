@@ -41,6 +41,7 @@ MCP_CHAT = optional("MCP_CHAT")
 MEMOS = optional("MEMOS")
 NAVIDROME = optional("NAVIDROME")
 NTFY = optional("NTFY")
+PARTY = optional("PARTY")
 OCULAR = optional("OCULAR")
 RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
 REPRESENT = optional("REPRESENT")
@@ -115,6 +116,9 @@ ROUTES = [
     # tracker is intentionally NOT in _gated_hosts — LAN-only, no oauth2-proxy
     # (the backend runs with TRACKER_OPEN=1). LAN reachability via internal DNS.
     ("tracker", TRACKER, "tracker"),
+    # party: same LAN-only model as tracker (PARTY_OPEN=1, NOT gated). The
+    # transcoder is loopback-only and intentionally NOT routed.
+    ("party", PARTY, "party"),
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
     ("represent", REPRESENT, "represent"),

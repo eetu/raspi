@@ -348,6 +348,14 @@ CIFS = {
         "sec": "ntlmsspi",
         "creds": "music",
     },
+    # Demoscene party archive — the `party` app's PARTY_ROOT=/mnt/scene/parties.
+    "scene": {
+        "share": "//zenwifi/scene",
+        "mountpoint": "/mnt/scene",
+        "vers": "2.0",
+        "sec": "ntlmsspi",
+        "creds": "music",
+    },
     "movies": {
         "share": "//zenwifi/movies",
         "mountpoint": "/mnt/movies",
@@ -475,7 +483,25 @@ TRACKER = {
     "host": "127.0.0.1",
     "port": 3010,
     "url_prefix": "tracker",
-    "image": "ghcr.io/eetu/tracker:main",
+    "image": "ghcr.io/eetu/scene-tracker:main",
+}
+
+# Demoscene archive player. LAN-only like tracker (PARTY_OPEN=1, not gated).
+# Content on the `scene` NAS share; loopback transcoder sidecar. Add
+# `"public_dns": True` to expose it on a public subdomain.
+PARTY = {
+    "host": "127.0.0.1",
+    "port": 3020,
+    "url_prefix": "party",
+    "image": "ghcr.io/eetu/scene-party:main",
+}
+
+# Stateless ffmpeg sidecar for party — loopback only, not web-routed.
+TRANSCODER = {
+    "host": "127.0.0.1",
+    "port": 3021,
+    "image": "ghcr.io/eetu/scene-transcoder:main",
+    "memory_max": "256M",
 }
 
 MEMOS = {
@@ -741,6 +767,7 @@ _SUBDOMAIN_NAMES = (
     "YARR",
     "NAVIDROME",
     "TRACKER",
+    "PARTY",
     "SYNCTHING",
     "KANIDM",
     "AI",

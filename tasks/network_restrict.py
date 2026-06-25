@@ -41,6 +41,9 @@ RESTRICTED = [
     "syncthing",
     # tracker serves a local NAS module collection — no internet needed.
     "tracker",
+    # party serves the local NAS scene archive; transcoder is local ffmpeg.
+    "party",
+    "transcoder",
     "wg-portal",
     "vuio",
     # zot serves a purely private registry — no upstream sync/mirror, so it
