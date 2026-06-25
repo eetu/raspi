@@ -169,7 +169,7 @@ def _configure_email_dns():
 def configure_dns(state=None, host=None):
     lan_ip = NETWORK["lan_ip"]
 
-    # Internal-only subdomains (everything not flagged `public=True`) are
+    # Internal-only subdomains (everything not flagged `public_dns=True`) are
     # excluded — Pi-hole still resolves them for LAN/VPN clients via
     # /etc/pihole/custom.list.
     for subdomain in PUBLIC_SUBDOMAINS:

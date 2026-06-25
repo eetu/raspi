@@ -60,7 +60,7 @@ AI = {
     "host": "192.168.x.y",  # Mac mini LAN IP
     "port": 11434,  # Caddy gateway port on the Mini
     "url_prefix": "ai",
-    "public": True,
+    "public_dns": True,
 }
 
 # Off-Pi image-generation endpoint (Mac mini ../mini repo, ComfyUI w/ Flux
@@ -74,7 +74,7 @@ COMFY = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8188,  # Caddy gateway port for ComfyUI on the Mini
     "url_prefix": "comfy",
-    "public": True,
+    "public_dns": True,
 }
 
 # Off-Pi speech-to-text endpoint (Mac mini ../mini repo, whisper.cpp HTTP
@@ -84,7 +84,7 @@ STT = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8190,  # Caddy gateway port for Whisper on the Mini
     "url_prefix": "stt",
-    "public": True,
+    "public_dns": True,
 }
 
 # Off-Pi text-to-speech endpoint (Mac mini ../mini repo, Piper TTS). Traefik
@@ -94,7 +94,7 @@ TTS = {
     "host": "192.168.x.y",  # Mac mini LAN IP (same as AI)
     "port": 8192,  # Caddy gateway port for Piper on the Mini
     "url_prefix": "tts",
-    "public": True,
+    "public_dns": True,
 }
 
 UNBOUND = {
@@ -107,7 +107,7 @@ PIHOLE = {
     "host": "127.0.0.1",
     "web_port": 8080,  # moved off 80 so Traefik owns it
     "url_prefix": "pihole",
-    "public": True,
+    "public_dns": True,
     "history_days": 7,  # query log retention; default is 365
     # Pin to a specific Pi-hole release tag. Installer URL is constructed from this tag so the
     # SHA-256 is stable. To upgrade: bump version, then update installer_sha256 with:
@@ -135,7 +135,7 @@ CHAT = {
 }
 
 # Represent — markdown demo-script presenter (../represent). Subdomain +
-# public flag live on its KANIDM_OIDC_CLIENTS entry (the chat/scribe pattern).
+# public_dns flag live on its KANIDM_OIDC_CLIENTS entry (the chat/scribe pattern).
 REPRESENT = {
     "host": "127.0.0.1",
     "port": 3008,
@@ -207,7 +207,7 @@ SHELF = {
     "host": "127.0.0.1",
     "port": 3006,
     "url_prefix": "shelf",
-    "public": True,  # external clients (iOS app) want this reachable
+    "public_dns": True,  # external clients (iOS app) want this reachable
     "image": "ghcr.io/eetu/scribe-shelf:main",
     "env": {
         "SHELF_LIBRARY_NAME": "Audiobooks",
@@ -223,7 +223,7 @@ HALO = {
     "host": "127.0.0.1",
     "port": 3000,
     "url_prefix": "halo",
-    "public": True,
+    "public_dns": True,
     "aliases": ("hcc",),  # legacy fallback — keep until clients migrate
     "image": "ghcr.io/eetu/halo:main",
     # Plain config env vars. See halo/backend/src/settings.rs.
@@ -367,7 +367,7 @@ NTFY = {
     "host": "127.0.0.1",
     "port": 8090,
     "url_prefix": "ntfy",
-    "public": True,  # external push sources (CI webhooks, alerts) need to reach it
+    "public_dns": True,  # external push sources (CI webhooks, alerts) need to reach it
     "image": "docker.io/binwiederhier/ntfy:v2",
     "topic": "raspi-alerts",  # topic used by system notifications (Trivy, version checks)
 }
@@ -445,7 +445,7 @@ YARR = {
     "host": "127.0.0.1",
     "port": 7070,
     "url_prefix": "rss",
-    "public": True,
+    "public_dns": True,
     "version": "v2.6",
 }
 
@@ -454,7 +454,7 @@ SYNCTHING = {
     "host": "127.0.0.1",
     "port": 8384,
     "url_prefix": "syncthing",
-    "public": True,
+    "public_dns": True,
     "user": "root",
 }
 
@@ -462,7 +462,7 @@ NAVIDROME = {
     "host": "127.0.0.1",
     "port": 4533,
     "url_prefix": "music",
-    "public": True,
+    "public_dns": True,
     "image": "docker.io/deluan/navidrome:0.61.1",
     "resolve_latest": False,
 }
@@ -520,32 +520,32 @@ BESZEL = {
 }
 
 # raspi-dashboard — stateless fan-in of gatus health + beszel metrics + trivy
-# CVE status onto one LAN-only page, behind oauth2-proxy (public: False).
+# CVE status onto one LAN-only page, behind oauth2-proxy (public_dns: False).
 RASPI_DASHBOARD = {
     "host": "127.0.0.1",
     "port": 3007,
     "url_prefix": "dashboard",
     "image": "ghcr.io/eetu/raspi-dashboard:main",
-    "public": False,
+    "public_dns": False,
     "memory_max": "96M",
     # Which beszel user (from BESZEL["users"]) this app authenticates as.
     "beszel_user": "dashboard@example.com",
 }
 
 # supersaw — browser synth (static SPA served by nginx, all audio client-side).
-# Stateless, no secrets; behind oauth2-proxy (public: False). The port is baked
+# Stateless, no secrets; behind oauth2-proxy (public_dns: False). The port is baked
 # into the image's nginx.conf — keep in sync with the supersaw repo.
 SUPERSAW = {
     "host": "127.0.0.1",
     "port": 3013,
     "url_prefix": "supersaw",
     "image": "ghcr.io/eetu/supersaw:main",
-    "public": False,
+    "public_dns": False,
     "memory_max": "48M",
 }
 
 # zot — self-hosted private OCI image registry (native Go binary, not a
-# container). LAN-only with NO auth (public: False, route not oauth2-gated):
+# container). LAN-only with NO auth (public_dns: False, route not oauth2-gated):
 # push from a dev box over the LAN with `podman push registry.{domain}/app:tag`.
 # The wildcard cert is Let's Encrypt-trusted, so no insecure-registry config is
 # needed client-side. Blob store lives on local SD ext4 (dedupe needs hardlinks,
@@ -557,7 +557,7 @@ ZOT = {
     "port": 5000,
     "url_prefix": "registry",
     "version": "v2.1.17",
-    "public": False,
+    "public_dns": False,
     "memory_max": "256M",
     "keep_tags": 10,
 }
@@ -566,7 +566,7 @@ ZOT = {
 # camera). raspi only proxies it: Traefik upstream is the node's LAN IP (the
 # AI/COMFY off-host pattern). The camera/detector block is rendered into
 # /etc/ocular/config.json on the node by tasks/ocular.py (native deploy, shipped
-# from the sibling ../ocular working tree). LAN-only subdomain (no "public").
+# from the sibling ../ocular working tree). LAN-only subdomain (no "public_dns").
 # Belongs to the `camera` feature.
 OCULAR = {
     "host": "192.168.x.z",  # camera node LAN IP
@@ -595,7 +595,7 @@ MCP_CHAT = {
     # Public DNS A record points to LAN IP — name resolves anywhere but only
     # LAN/VPN clients can reach it. Lets roaming machines (cellular hotspot)
     # resolve via their default resolver instead of needing Pi-hole/WG.
-    "public": True,
+    "public_dns": True,
     # MCP bridge for chat's img2img + inpaint endpoints. Speaks streamable-HTTP
     # MCP at `/mcp`. CHAT_MCP_API_KEY (backend) and CHAT_MCP_SERVER_KEY (this
     # service) are both opt-in — leave unset while we trust the LAN perimeter.
@@ -605,7 +605,7 @@ KANIDM = {
     "host": "127.0.0.1",
     "port": 8443,
     "url_prefix": "idm",
-    "public": True,
+    "public_dns": True,
     # Pin to a specific release. Do NOT use resolve_latest on the Pi 4:
     # kanidm 1.10.3 SIGILLs (exit 132) on the Cortex-A72 — that build needs a
     # newer CPU baseline (kanidm#4371, fix in PR #4372). 1.10.2 is the newest
@@ -632,7 +632,7 @@ KANIDM_OIDC_CLIENTS = {
     "vaultwarden": {
         "display_name": "Vaultwarden Password Manager",
         "url_prefix": "vault",  # → https://vault.{domain}
-        "public": True,  # mobile Bitwarden client needs reachable URL on cellular
+        "public_dns": True,  # mobile Bitwarden client needs reachable URL on cellular
         "redirect_path": "/identity/connect/oidc-signin",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "vw_client_secret",
@@ -640,7 +640,7 @@ KANIDM_OIDC_CLIENTS = {
     "gatus": {
         "display_name": "Gatus Monitoring",
         "url_prefix": "gatus",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/authorization-code/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "gatus_client_secret",
@@ -649,7 +649,7 @@ KANIDM_OIDC_CLIENTS = {
     "wgportal": {
         "display_name": "WireGuard Portal",
         "url_prefix": "vpn",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/api/v0/auth/login/oidc/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "wgportal_client_secret",
@@ -657,7 +657,7 @@ KANIDM_OIDC_CLIENTS = {
     "audiobookshelf": {
         "display_name": "Audiobookshelf",
         "url_prefix": "audiobooks",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/audiobookshelf/auth/openid/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "abs_client_secret",
@@ -665,7 +665,7 @@ KANIDM_OIDC_CLIENTS = {
     "beszel": {
         "display_name": "Beszel Monitoring",
         "url_prefix": "beszel",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/api/oauth2-redirect",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "beszel_client_secret",
@@ -673,7 +673,7 @@ KANIDM_OIDC_CLIENTS = {
     "oauth2-proxy": {
         "display_name": "OAuth2 Proxy Forward-Auth Gateway",
         "url_prefix": "auth",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/oauth2/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "oauth2_proxy_client_secret",
@@ -681,7 +681,7 @@ KANIDM_OIDC_CLIENTS = {
     "memos": {
         "display_name": "Memos",
         "url_prefix": "memo",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "memos_client_secret",
@@ -689,7 +689,7 @@ KANIDM_OIDC_CLIENTS = {
     "chat": {
         "display_name": "Chat",
         "url_prefix": "chat",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "chat_client_secret",
@@ -697,7 +697,7 @@ KANIDM_OIDC_CLIENTS = {
     "scribe": {
         "display_name": "Scribe",
         "url_prefix": "scribe",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "scribe_client_secret",
@@ -705,7 +705,7 @@ KANIDM_OIDC_CLIENTS = {
     "represent": {
         "display_name": "Represent",
         "url_prefix": "represent",
-        "public": True,
+        "public_dns": True,
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "represent_client_secret",
@@ -723,12 +723,12 @@ KANIDM_PERSONS = {
 }
 
 # Subdomain registry, derived from each service's `url_prefix` (plus any
-# `aliases`). Every entry below has `"public": True` so its name lands in
+# `aliases`). Every entry below has `"public_dns": True` so its name lands in
 # Cloudflare as an A record pointing to the LAN IP — this prevents macOS /
 # iOS resolvers from negatively caching NXDOMAIN when a roaming client (or
 # a freshly-rebooted Pi) briefly fails to resolve via Pi-hole. The CF
 # records still point at RFC1918 space, so they only connect from LAN /
-# WireGuard. Drop a service back to LAN-only by removing its `public`
+# WireGuard. Drop a service back to LAN-only by removing its `public_dns`
 # flag — it then only gets the Pi-hole split-DNS override and resolves
 # nowhere else. Wildcard TLS cert covers both via DNS-01.
 # Names listed here are looked up in module globals — a service that's
@@ -757,26 +757,26 @@ _SUBDOMAIN_NAMES = (
 _SUBDOMAIN_SOURCES = tuple(d for d in (globals().get(n) for n in _SUBDOMAIN_NAMES) if d is not None)
 PUBLIC_SUBDOMAINS = tuple(
     sorted(
-        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if svc.get("public")}
+        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if svc.get("public_dns")}
         | {
             alias
             for svc in _SUBDOMAIN_SOURCES
-            if svc.get("public")
+            if svc.get("public_dns")
             for alias in svc.get("aliases", ())
         }
-        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if c.get("public")}
+        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if c.get("public_dns")}
     )
 )
 INTERNAL_SUBDOMAINS = tuple(
     sorted(
-        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if not svc.get("public")}
+        {svc["url_prefix"] for svc in _SUBDOMAIN_SOURCES if not svc.get("public_dns")}
         | {
             alias
             for svc in _SUBDOMAIN_SOURCES
-            if not svc.get("public")
+            if not svc.get("public_dns")
             for alias in svc.get("aliases", ())
         }
-        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if not c.get("public")}
+        | {c["url_prefix"] for c in KANIDM_OIDC_CLIENTS.values() if not c.get("public_dns")}
     )
 )
 SUBDOMAINS = tuple(sorted(set(PUBLIC_SUBDOMAINS) | set(INTERNAL_SUBDOMAINS)))
