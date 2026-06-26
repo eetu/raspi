@@ -24,16 +24,34 @@ AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 
 
 if AUDIOBOOKSHELF is None:
-    # Retired: keep state on disk, just stop the unit so the container
-    # exits and the port is freed. Quadlet file is left in place — it's
-    # harmless without the systemd unit enabled, and re-adding the
-    # AUDIOBOOKSHELF block + redeploying brings the service back.
+    # Retired: keep state on disk (/var/lib/audiobookshelf, the BW item, and the
+    # Kanidm OIDC client all survive) but fully remove the unit. Leaving the
+    # quadlet in place was NOT harmless — the generator kept recreating the unit,
+    # which restart-looped (no image / mount) into `failed` and surfaced in
+    # beszel as a failed service. So stop + disable, delete the quadlet,
+    # regenerate, and clear the lingering failed state. Re-adding the
+    # AUDIOBOOKSHELF block + redeploying rewrites the quadlet and restores it.
     systemd.service(
-        name="Stop + disable audiobookshelf (kept on disk for rollback)",
+        name="Stop + disable audiobookshelf",
         service="audiobookshelf",
         running=False,
         enabled=False,
         daemon_reload=True,
+    )
+
+    files.file(
+        name="Remove audiobookshelf.container quadlet (retired)",
+        path="/etc/containers/systemd/audiobookshelf.container",
+        present=False,
+    )
+
+    server.shell(
+        name="Regenerate quadlet units + clear failed state",
+        commands=[
+            "/usr/lib/systemd/system-generators/podman-system-generator /run/systemd/generator 2>/dev/null || true",
+            "systemctl daemon-reload",
+            "systemctl reset-failed audiobookshelf.service 2>/dev/null || true",
+        ],
     )
 else:
     # OIDC is optional — service deploys without SSO if not in KANIDM_OIDC_CLIENTS
