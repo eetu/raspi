@@ -35,6 +35,7 @@ AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 BESZEL = optional("BESZEL")
 CHAT = optional("CHAT")
 COMFY = optional("COMFY")
+DICE = optional("DICE")
 GATUS = optional("GATUS")
 HALO = optional("HALO")
 MCP_CHAT = optional("MCP_CHAT")
@@ -119,6 +120,10 @@ ROUTES = [
     # party: same LAN-only model as tracker (PARTY_OPEN=1, NOT gated). The
     # transcoder is loopback-only and intentionally NOT routed.
     ("party", PARTY, "party"),
+    # dice: public/un-gated (no login at all) — intentionally NOT in
+    # _gated_hosts. /ws is same-origin, so a plain HTTP router forwards the
+    # WebSocket upgrade with no extra config.
+    ("dice", DICE, "dice"),
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
     ("represent", REPRESENT, "represent"),

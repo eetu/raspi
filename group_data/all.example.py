@@ -498,6 +498,22 @@ PARTY = {
     "image": "ghcr.io/eetu/scene-party:main",
 }
 
+# Multiplayer dice roller (Rust+SPA, room codes). Public/un-gated (no login,
+# not in _gated_hosts), stateless (in-memory rooms only — no volume/DB/restic).
+# Network=host + DICE_BIND on loopback keeps the raw backend off the LAN.
+# Add `"public_dns": True` to expose it on a public subdomain.
+DICE = {
+    "host": "127.0.0.1",
+    "port": 3040,
+    "url_prefix": "dice",
+    "image": "ghcr.io/eetu/dice:main",
+    "memory_max": "64M",
+    "ttl_secs": 7200,
+    "max_dice": 8,
+    "max_rooms": 5000,
+    "max_players": 16,
+}
+
 # Stateless ffmpeg sidecar for party — loopback only, not web-routed.
 TRANSCODER = {
     "host": "127.0.0.1",
@@ -770,6 +786,7 @@ _SUBDOMAIN_NAMES = (
     "NAVIDROME",
     "TRACKER",
     "PARTY",
+    "DICE",
     "SYNCTHING",
     "KANIDM",
     "AI",

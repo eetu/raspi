@@ -48,6 +48,7 @@ else:
     AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
     BESZEL = optional("BESZEL")
     CHAT = optional("CHAT")
+    DICE = optional("DICE")
     HALO = optional("HALO")
     MCP_CHAT = optional("MCP_CHAT")
     MEMOS = optional("MEMOS")
@@ -177,6 +178,15 @@ alerting:
                 f"http://{SUPERSAW['host']}:{SUPERSAW['port']}/status",
                 group="apps",
                 comment="nginx static SPA — /status is the unauthenticated liveness route.",
+            )
+        )
+    if DICE:
+        _endpoints.append(
+            _ep(
+                "Dice",
+                f"http://{DICE['host']}:{DICE['port']}/status",
+                group="apps",
+                comment="un-gated loopback probe — /status is unauthenticated.",
             )
         )
     if SCRIBE:

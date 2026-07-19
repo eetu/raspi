@@ -44,6 +44,8 @@ RESTRICTED = [
     # party serves the local NAS scene archive; transcoder is local ffmpeg.
     "party",
     "transcoder",
+    # dice keeps all room state in memory — no outbound calls needed.
+    "dice",
     "wg-portal",
     "vuio",
     # zot serves a purely private registry — no upstream sync/mirror, so it
