@@ -38,6 +38,7 @@ DEPLOY = [
     # transcoder before party so the loopback sidecar is up when party starts.
     ("transcoder", "apps"),
     ("party", "apps"),
+    ("dice", "apps"),
     ("ntfy", "monitoring"),
     ("gatus", "monitoring"),
     ("trivy", "monitoring"),

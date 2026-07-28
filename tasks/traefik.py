@@ -35,6 +35,7 @@ AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 BESZEL = optional("BESZEL")
 CHAT = optional("CHAT")
 COMFY = optional("COMFY")
+DICE = optional("DICE")
 GATUS = optional("GATUS")
 HALO = optional("HALO")
 MCP_CHAT = optional("MCP_CHAT")
@@ -119,6 +120,10 @@ ROUTES = [
     # party: same LAN-only model as tracker (PARTY_OPEN=1, NOT gated). The
     # transcoder is loopback-only and intentionally NOT routed.
     ("party", PARTY, "party"),
+    # dice: public/un-gated (no login at all) — intentionally NOT in
+    # _gated_hosts. /ws is same-origin, so a plain HTTP router forwards the
+    # WebSocket upgrade with no extra config.
+    ("dice", DICE, "dice"),
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
     ("represent", REPRESENT, "represent"),
@@ -365,7 +370,39 @@ _oauth2_per_host = "\n".join(
 
 _middlewares = f"""\
     compress:
-      compress: {{}}
+      compress:
+        # A whitelist, not a blacklist: anything absent is never compressed.
+        #
+        # This middleware hangs off the websecure entrypoint (see static_yaml),
+        # so it applies to every HTTPS route on the box — including the audio
+        # streams from shelf, audiobookshelf and navidrome. gzip on a media
+        # response strips Content-Length and Accept-Ranges, and leaves the ETag
+        # describing bytes that are no longer what's on the wire. Those are
+        # exactly the headers a client needs in order to resume an interrupted
+        # download, so compressing an m4b silently breaks resume — and buys
+        # nothing, since AAC is already compressed.
+        #
+        # The direction matters: omitting a text type here costs a little
+        # bandwidth, while omitting a binary type from a blacklist breaks
+        # resume again with no signal. So: text types only, and extend this
+        # list rather than switching to excludedContentTypes (Traefik treats
+        # the two as mutually exclusive).
+        #
+        # text/javascript, not just application/javascript: the former is what
+        # mime_guess (and WHATWG) give a .js file, so it's what the SPA
+        # backends actually serve.
+        includedContentTypes:
+          - text/html
+          - text/css
+          - text/plain
+          - text/xml
+          - text/javascript
+          - application/javascript
+          - application/json
+          - application/xml
+          - application/rss+xml
+          - application/atom+xml
+          - image/svg+xml
     pihole-redirect:
       redirectRegex:
         regex: '^https://pihole\\.{DOMAIN}/$'
