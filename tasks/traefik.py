@@ -41,6 +41,7 @@ HALO = optional("HALO")
 MCP_CHAT = optional("MCP_CHAT")
 MEMOS = optional("MEMOS")
 NAVIDROME = optional("NAVIDROME")
+NIB = optional("NIB")
 NTFY = optional("NTFY")
 PARTY = optional("PARTY")
 OCULAR = optional("OCULAR")
@@ -127,6 +128,11 @@ ROUTES = [
     ("memo", MEMOS, "memo"),
     ("chat", CHAT, "chat"),
     ("represent", REPRESENT, "represent"),
+    # nib: runs its own Kanidm OIDC client, so it is intentionally NOT in
+    # _gated_hosts — oauth2-proxy forward-auth would 401 its /mcp surface, which
+    # authenticates with a per-user bearer token and carries no session cookie.
+    # /ws is same-origin, so the plain HTTP router forwards the upgrade as-is.
+    ("nib", NIB, "nib"),
     ("scribe", SCRIBE, "scribe"),
     ("shelf", SHELF, "shelf"),
     ("syncthing", SYNCTHING, "syncthing"),

@@ -442,6 +442,12 @@ def represent_session_key() -> str:
     return _get_or_create("represent", "session_key", lambda: secrets.token_hex(64))
 
 
+def nib_session_key() -> str:
+    """nib SESSION_KEY (64-byte hex) — signs the OIDC session cookie. nib refuses to
+    boot without it, and changing it logs everyone out, so it must be stable."""
+    return _get_or_create("nib", "session_key", lambda: secrets.token_hex(64))
+
+
 def scribe_session_key() -> str:
     """scribe SESSION_KEY (64-byte hex) — stable so signed session cookies survive restarts."""
     return _get_or_create("scribe", "session_key", lambda: secrets.token_hex(64))
