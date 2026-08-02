@@ -53,6 +53,7 @@ else:
     MCP_CHAT = optional("MCP_CHAT")
     MEMOS = optional("MEMOS")
     NAVIDROME = optional("NAVIDROME")
+    NIB = optional("NIB")
     NTFY = optional("NTFY")
     OCULAR = optional("OCULAR")
     RASPI_DASHBOARD = optional("RASPI_DASHBOARD")
@@ -187,6 +188,15 @@ alerting:
                 f"http://{DICE['host']}:{DICE['port']}/status",
                 group="apps",
                 comment="un-gated loopback probe — /status is unauthenticated.",
+            )
+        )
+    if NIB:
+        _endpoints.append(
+            _ep(
+                "Nib",
+                f"http://{NIB['host']}:{NIB['port']}/api/version",
+                group="apps",
+                comment="loopback probe — /api/version is the unauthenticated liveness route.",
             )
         )
     if SCRIBE:

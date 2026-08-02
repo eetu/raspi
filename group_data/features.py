@@ -49,6 +49,8 @@ DEPLOY = [
     ("oauth2_proxy", "sso"),
     ("memos", "apps"),
     ("represent", "apps"),
+    # After kanidm_oidc so the generated client secret exists by deploy 2.
+    ("nib", "apps"),
     ("supersaw", "apps"),
     ("chat", "chat"),
     ("mcp_chat", "chat"),

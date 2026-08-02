@@ -24,6 +24,7 @@ MEMOS = optional("MEMOS")
 CHAT = optional("CHAT")
 MCP_CHAT = optional("MCP_CHAT")
 REPRESENT = optional("REPRESENT")
+NIB = optional("NIB")
 SCRIBE = optional("SCRIBE")
 SHIM = optional("SHIM")
 SHELF = optional("SHELF")
@@ -207,6 +208,30 @@ if feature("apps") and REPRESENT:
             ]
         )
     _put_secret("represent.env", "\n".join(_rep_lines) + "\n", "/etc/secrets/represent.env")
+
+# --- Nib ---
+# Same two-deploy shape as represent. SESSION_KEY is auto-generated on deploy 1 and nib
+# refuses to boot without it; the OIDC vars land on deploy 2, once Kanidm has produced the
+# client secret. In between nib is up and healthy but nobody can sign in — deliberate: nib
+# has no forward-auth tier to fall back on, so it fails closed rather than trusting a header
+# no proxy is setting (it isn't in traefik's _gated_hosts).
+
+if feature("apps") and NIB:
+    _nib_oidc = KANIDM_OIDC_CLIENTS.get("nib")
+    _nib_oidc_secret = vault.kanidm_oidc_secret(_nib_oidc["secret_field"]) if _nib_oidc else ""
+    _nib_lines = [f"SESSION_KEY={vault.nib_session_key()}"]
+    if _nib_oidc_secret:
+        _nib_lines.extend(
+            [
+                # Kanidm gives each OAuth2 client its own issuer — the client name is part of
+                # the path, and getting it wrong makes discovery 404.
+                f"OIDC_ISSUER=https://idm.{DOMAIN}/oauth2/openid/nib",
+                "OIDC_CLIENT_ID=nib",
+                f"OIDC_CLIENT_SECRET={_nib_oidc_secret}",
+                f"OIDC_REDIRECT_URL=https://nib.{DOMAIN}/auth/callback",
+            ]
+        )
+    _put_secret("nib.env", "\n".join(_nib_lines) + "\n", "/etc/secrets/nib.env")
 
 # --- Scribe ---
 # Same pattern as chat. OIDC vars are written only once Kanidm has produced

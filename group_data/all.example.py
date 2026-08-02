@@ -143,6 +143,22 @@ REPRESENT = {
     "env": {},
 }
 
+# Nib — direct-manipulation SVG path editor (../nib). Rust core + SvelteKit SPA in one
+# image; projects live in a SQLite file under /var/lib/nib. Subdomain + public_dns flag
+# live on its KANIDM_OIDC_CLIENTS entry (the represent pattern).
+#
+# Also serves an MCP tool surface at /mcp so an LLM can co-edit a document live alongside
+# the browser. That path authenticates with each user's own bearer token (shown in nib's
+# Settings), NOT SSO — which is why nib is deliberately absent from traefik's _gated_hosts:
+# it runs its own OIDC client, and oauth2-proxy at the edge would 401 an MCP client, which
+# sends a bearer and has no session cookie.
+NIB = {
+    "host": "127.0.0.1",
+    "port": 3009,
+    "image": "ghcr.io/eetu/nib:main",
+    "env": {},
+}
+
 # Scribe — self-hosted Audible library mirror. Talks to shim over loopback,
 # ships ffmpeg work to scribe-press on the mini. The library/ tree on the
 # CIFS audiobooks share is what audiobookshelf reads; original/ is the
@@ -421,6 +437,7 @@ RESTIC = {
         "/var/lib/beszel",
         "/var/lib/chat",
         "/var/lib/represent",  # represent.db (profiles/projects/documents)
+        "/var/lib/nib",  # nib.db (users + svg projects, native model + cached export)
         "/var/lib/scribe",
         "/var/lib/shim",
         "/var/lib/zot",  # private OCI registry blob store (manifests + layers)
@@ -753,6 +770,16 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/auth/callback",
         "scopes": ["openid", "profile", "email"],
         "secret_field": "represent_client_secret",
+    },
+    # No disable_pkce: nib's openidconnect client does S256 out of the box, and
+    # Kanidm requires PKCE unless a client opts out.
+    "nib": {
+        "display_name": "Nib",
+        "url_prefix": "nib",
+        "public_dns": True,
+        "redirect_path": "/auth/callback",
+        "scopes": ["openid", "profile", "email"],
+        "secret_field": "nib_client_secret",
     },
 }
 

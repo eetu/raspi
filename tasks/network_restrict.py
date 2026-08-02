@@ -27,6 +27,9 @@ RESTRICTED = [
     "chat",
     "mcp-chat",
     "navidrome",
+    # nib's only outbound call is OIDC discovery + token exchange against
+    # idm.{domain}, which resolves to the LAN IP — covered by the LAN allow.
+    "nib",
     "ntfy",
     "oauth2-proxy",
     "ocular",
