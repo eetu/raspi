@@ -49,15 +49,32 @@ resolve() {{
     return 0
   fi
   local line="$ip $alias"
-  if grep -qE "^[[:space:]]*[0-9.]+[[:space:]]+$alias([[:space:]]|$)" "$HOSTS_FILE"; then
-    if ! grep -qE "^$ip[[:space:]]+$alias([[:space:]]|$)" "$HOSTS_FILE"; then
-      sed -i -E "s|^[[:space:]]*[0-9.]+[[:space:]]+$alias([[:space:]]|$).*|$line|" "$HOSTS_FILE"
-      echo "hosts-discover: $alias -> $ip"
-    fi
-  else
-    echo "$line" >> "$HOSTS_FILE"
-    echo "hosts-discover: $alias -> $ip (added)"
+  if grep -qE "^$ip[[:space:]]+$alias([[:space:]]|$)" "$HOSTS_FILE"; then
+    return 0  # already correct
   fi
+  # Rewrite by filtering the stale line out and appending the new one, rather
+  # than editing in place.
+  #
+  # The sed this replaces was `s|…$alias([[:space:]]|$).*|$line|`: an `s|||`
+  # whose *pattern* contained a literal `|`, so sed hit its own delimiter and
+  # died with "unknown option to `s'". It failed on every run while the
+  # unconditional echo below announced success — so /etc/hosts kept a dead IP,
+  # the CIFS mount pointed at nothing, and the logs said it was fine.
+  # Filtering has no delimiter to collide with, and treats add and update the
+  # same way.
+  #
+  # `cat >` rather than `mv`: it keeps /etc/hosts' inode, owner and mode.
+  local tmp
+  tmp=$(mktemp) || return 0
+  if grep -vE "^[[:space:]]*[0-9.]+[[:space:]]+$alias([[:space:]]|$)" "$HOSTS_FILE" > "$tmp" &&
+     echo "$line" >> "$tmp" &&
+     cat "$tmp" > "$HOSTS_FILE"; then
+    echo "hosts-discover: $alias -> $ip"
+  else
+    # Never claim a write that didn't happen — that is what hid this for so long.
+    echo "hosts-discover: FAILED writing $alias -> $ip to $HOSTS_FILE" >&2
+  fi
+  rm -f "$tmp"
 }}
 
 {_lookups}
