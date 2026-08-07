@@ -14,6 +14,13 @@ The `mods` share is mounted READ-WRITE (not :ro like navidrome's music): the
 list view renames/moves modules in place (`/api/rename`) to clean up names
 from old CD rips.
 
+The High Voltage SID Collection comes in as a second root from the `scene`
+share, read-only. It is never walked: tracker indexes it from the collection's
+own `DOCUMENTS/Songlengths.md5`, so 61k tunes cost one 5MB read rather than the
+minutes a stat-and-hash pass over CIFS would take. The C64 ROMs SID playback
+wants live beside the modules in `mods/.support` — copyrighted and
+operator-supplied, like the Amiga Kickstart under `parties/.support`.
+
 Optional service — comment the TRACKER dict in group_data/all.py to retire
 it. The task then stops + disables the unit; /var/lib/tracker (the SQLite
 cache) stays on disk for rollback (the modules live on the NAS regardless).
@@ -42,12 +49,18 @@ if TRACKER is None:
 else:
     _mods = CIFS["mods"]["mountpoint"]
     _mount_unit = f"{_mods.lstrip('/').replace('/', '-')}.automount"  # mnt-mods.automount
+    # HVSC lives on the `scene` share, so that mount has to be up too. Without
+    # this the container can start before it is, and podman fails the whole unit
+    # with `statfs …: host is down` rather than degrading.
+    _scene = CIFS["scene"]["mountpoint"]
+    _hvsc = f"{_scene}/C64Music"
+    _scene_unit = f"{_scene.lstrip('/').replace('/', '-')}.automount"  # mnt-scene.automount
 
     quadlet = f"""\
 [Unit]
 Description=Tracker — FastTracker 2-style module player
-After=network-online.target {_mount_unit}
-Wants=network-online.target {_mount_unit}
+After=network-online.target {_mount_unit} {_scene_unit}
+Wants=network-online.target {_mount_unit} {_scene_unit}
 
 [Container]
 ContainerName=tracker
@@ -55,9 +68,25 @@ Image={TRACKER["image"]}
 Network=host
 Volume=/var/lib/tracker:/data
 Volume={_mods}:/mods
-Environment=TRACKER_ROOT=/mods
+# The High Voltage SID Collection, read-only: tracker indexes it from the
+# collection's own DOCUMENTS/Songlengths.md5 and never writes to it, so `:ro`
+# states that and protects 61k tunes from a bug.
+Volume={_hvsc}:/hvsc:ro
+# Two roots: the module collection (walked + hashed) and HVSC (indexed from its
+# own catalogue in seconds, no walk). Supersedes TRACKER_ROOT.
+Environment=TRACKER_ROOTS=mods:scan:/mods,hvsc:hvsc:/hvsc
 Environment=TRACKER_DB_PATH=/data/tracker.db
 Environment=TRACKER_BIND={TRACKER["host"]}:{TRACKER["port"]}
+# C64 ROMs for SID playback, beside the modules on the share (a dot-directory,
+# so the scanner skips it) — same arrangement as the Amiga Kickstart under
+# parties/.support. Operator-supplied and copyrighted, hence on the NAS rather
+# than in the image. Without them a BASIC-driven RSID plays as near-silence.
+Environment=TRACKER_ROMS_DIR=/mods/.support
+# The scan is latency-bound on CIFS, not CPU-bound, so more threads than cores
+# helps — but each one holds a read buffer, and this unit has a hard memory cap.
+# 8 keeps nearly all of the measured win (8/16/32 were indistinguishable) at half
+# the in-flight memory of the cores*4 default this Pi would otherwise pick.
+Environment=TRACKER_SCAN_THREADS=8
 # LAN-only deploy with no oauth2-proxy in front — skip the forward-auth
 # header assertion (the host is egress-restricted; see network_restrict.py).
 Environment=TRACKER_OPEN=1
@@ -68,7 +97,10 @@ Pull=newer
 Restart=always
 RestartSec=10
 TimeoutStartSec=300
-MemoryMax=128M
+# Raised from 128M when HVSC was added: the index writes 61,157 file rows plus
+# 87,868 song rows in one transaction, and the cold module scan already peaked
+# at ~115M of the old cap.
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
