@@ -30,6 +30,7 @@ per-service `*-monitor` bypass routers — has to opt in explicitly, which is wh
 
 import hashlib
 import io
+import re
 
 from pyinfra.operations import files, server, systemd
 
@@ -300,6 +301,19 @@ providers:
 log:
   level: WARN
 
+# Errors only, to stdout -> journald. With 443 reachable from the internet there
+# was previously no record of who hit the proxy at all; a 403 from the
+# internal-only allowlist is exactly the signal worth keeping. Filtered to 4xx/5xx
+# so normal traffic (including media streaming) writes nothing, and journald here
+# is Storage=volatile with RuntimeMaxUse=64M (files/journald.conf), so this costs
+# RAM that is already bounded rather than SD-card writes.
+accessLog:
+  format: json
+  filters:
+    statusCodes:
+      - "400-499"
+      - "500-599"
+
 api:
   dashboard: false
 """
@@ -526,6 +540,13 @@ _middlewares = f"""\
       forwardAuth:
         address: "http://{OAUTH2_PROXY["host"]}:{OAUTH2_PROXY["port"]}/oauth2/auth"
         trustForwardHeader: true
+        # Bound what Traefik will buffer from the auth server. Left unset it
+        # accepts an unlimited body, which Traefik itself warns is a memory
+        # exhaustion path — and this box has 1 GB with no swap headroom to spare.
+        # /oauth2/auth answers with headers and at most a session cookie, so 64 KB
+        # is already generous; the only way to exceed it is oauth2-proxy
+        # misbehaving, which is precisely the case worth failing closed on.
+        maxResponseBodySize: 65536
         authResponseHeaders:
           - X-Auth-Request-User
           - X-Auth-Request-Email
@@ -546,7 +567,48 @@ dynamic_yaml = (
     + "      # Kanidm serves the ACME wildcard cert (Let's Encrypt) — trusted by system CAs.\n"
     + "      # serverName overrides SNI so hostname verification passes on loopback.\n"
     + f'      serverName: "idm.{DOMAIN}"\n'
+    # Named `default`, so it applies to every router without touching any of them.
+    # sniStrict is the interesting half: without it a connection with no matching
+    # SNI (a scanner dialling the bare public IP) is served Traefik's built-in
+    # self-signed cert, which both answers and fingerprints. With it the handshake
+    # simply fails. Nothing here talks to Traefik by IP over HTTPS — the
+    # https://127.0.0.1 calls in tasks/kanidm*.py go straight to Kanidm on :8443,
+    # not through the proxy — so nothing legitimate loses its connection.
+    + "\ntls:\n"
+    + "  options:\n"
+    + "    default:\n"
+    + "      minVersion: VersionTLS12\n"
+    + "      sniStrict: true\n"
 )
+
+
+def _assert_routers_guarded(yaml_text):
+    """Fail at plan time if any router lacks the internal-only allowlist.
+
+    `_router_block` attaches it for free, but the hand-written blocks each call
+    `_mw_yaml` by hand. Forgetting one on a box whose 443 is forwarded from the
+    internet is silent — no error, no symptom, just an exposed vhost — so the
+    check is mechanical rather than a code-review habit. A router serving several
+    hosts must have *all* of them public to skip the guard, otherwise an alias
+    could smuggle a private name onto a public router.
+    """
+    section = yaml_text.split("  routers:\n", 1)[1].split("\n  middlewares:", 1)[0]
+    for name, body in re.findall(r"^    ([A-Za-z0-9_-]+):\n((?:^ {6,}.*\n)+)", section, re.M):
+        hosts = re.findall(rf"Host\(`([^`]+)\.{re.escape(DOMAIN)}`\)", body)
+        if "internal-only" in body:
+            continue
+        if hosts and all(h in PUBLIC_HOSTS for h in hosts):
+            continue
+        raise ValueError(
+            f"traefik: router '{name}' (hosts: {hosts or 'unknown'}) has no "
+            "`internal-only` middleware and is not fully covered by "
+            'TRAEFIK["public_hosts"]. With public 443 forwarded to this proxy that '
+            "would expose it to the internet. Add _mw_yaml(<host_prefix>) to the "
+            "block, or list the host in public_hosts if that is genuinely intended."
+        )
+
+
+_assert_routers_guarded(dynamic_yaml)
 
 files.put(
     name="Write Traefik dynamic config",
