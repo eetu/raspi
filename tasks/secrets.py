@@ -13,7 +13,7 @@ import io
 from pyinfra.operations import files
 
 import vault
-from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETWORK
+from group_data.all import CIFS, KANIDM_OIDC_CLIENTS, NETBIRD, NETWORK
 from tasks.util import feature, optional
 
 RESTIC = optional("RESTIC")
@@ -66,6 +66,34 @@ if feature("proxy") or feature("dns"):
         mode="640",
         group="traefik",
     )
+
+# --- NetBird (`vpn`) ---
+#
+# Only the credentials the *Pi* needs. netbird-server's own crypto (auth secret,
+# store encryption key, IdP cookie key) goes into its 600 config.yaml instead,
+# because the server takes those from the config file rather than the environment
+# — see tasks/netbird.py.
+#
+# The setup key is the second half of the bootstrap: it does not exist until
+# tasks/netbird_reconcile.py has created it, which is later in the same deploy, so
+# on a first run this writes nothing and tasks/netbird_agent.py enrols on the
+# deploy after. Writing an empty file would be worse than writing none — the agent
+# checks for a non-empty file.
+
+if feature("vpn"):
+    _put_secret(
+        "netbird.env",
+        f"NB_BOOTSTRAP_OWNER_EMAIL={NETBIRD['bootstrap_owner_email']}\n"
+        f"NB_BOOTSTRAP_OWNER_PASSWORD={vault.netbird_bootstrap_owner_password()}\n",
+        "/etc/secrets/netbird.env",
+    )
+
+    # Only the key this host enrols with lands on disk. The others exist to be
+    # read out of the vault and pasted into a phone or laptop, so there is no
+    # reason to drop plaintext on the SD card for them.
+    _agent_key = vault.netbird_setup_key(NETBIRD["agent_setup_key"])
+    if _agent_key:
+        _put_secret("netbird-setup-key", _agent_key, "/etc/secrets/netbird-setup-key")
 
 # --- oauth2-proxy (`sso`) ---
 # Skipped on first deploy until kanidm_oidc.py has generated the client secret.

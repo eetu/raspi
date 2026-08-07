@@ -1,0 +1,134 @@
+#!/bin/sh
+# Updates the router's ip6tables rules to allow the NetBird coordinator (TCP 443
+# via Traefik, UDP 3478 for STUN) to the Pi's current global IPv6 address.
+#
+# Why this exists: the router runs IPv6 in passthrough mode (`ipv6_service=ipv6pt`),
+# which is ND-proxy relaying rather than L2 bridging — so WAN→LAN traffic is routed
+# and *does* traverse ip6tables FORWARD. There is no NAT on IPv6, so the router
+# either permits a port to the Pi's address or it does not, and that address moves
+# whenever the ISP rotates the prefix. Hence this script.
+#
+# How it learns the address, in priority order:
+#   1. $SSH_ORIGINAL_COMMAND — the Pi passes its own global address when the DDNS
+#      timer notices a change. This is the authoritative source: the Pi is the only
+#      party that reliably knows it. dropbear sets this even for a forced command.
+#   2. The cached value from the last successful run, for the firewall-start
+#      invocation at boot (no SSH context, and the Pi may not call for minutes).
+#   3. The neighbour table, best-effort.
+#
+# (3) used to be the only method and is why this mechanism sat broken: the router
+# only holds a neighbour entry for a global address while it is actively forwarding
+# to it, so an idle Pi has no global entry at all — and the router cannot compute
+# one either, because passthrough leaves it without an address in the Pi's prefix.
+#
+# Setup:
+#   1. Set PI_MAC to the Pi's Ethernet MAC (ip link show eth0 | grep ether)
+#   2. Copy to router:
+#        scp files/router-update-netbird-firewall.sh USER@ROUTER:/jffs/scripts/update-netbird-firewall.sh
+#        ssh USER@ROUTER chmod +x /jffs/scripts/update-netbird-firewall.sh
+#   3. Optional, and a no-op on stock Asuswrt — add to firewall-start:
+#        echo /jffs/scripts/update-netbird-firewall.sh > /jffs/scripts/firewall-start
+#        chmod +x /jffs/scripts/firewall-start
+#      firewall-start only runs when custom JFFS scripts are enabled (`nvram get
+#      jffs2_scripts` = 1), which is a Merlin feature; on stock firmware both
+#      jffs2_scripts and jffs2_on are empty and the hook never fires. Verified on a
+#      ZenWiFi BT8: WGSF came back EMPTY after a reboot. That is tolerable because
+#      the Pi's DDNS timer re-asserts the rules over SSH every 5 minutes anyway —
+#      so a reboot costs at most 5 minutes of closed IPv6, not a permanent outage.
+#   4. Add to the router's SSH authorized keys (Administration → System on stock
+#      Asuswrt; it is stored in nvram, so editing the file alone does not persist):
+#        command="/jffs/scripts/update-netbird-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
+
+PI_MAC="xx:xx:xx:xx:xx:xx"  # Pi's Ethernet MAC — find with: ip link show eth0 | grep ether
+
+# Rules to maintain, as "proto:dport" pairs. 51820 is the agent's WireGuard port:
+# IPv4 gets it via a router port-forward, but IPv6 has no NAT and therefore no
+# forward, so this chain is the only gate — omit it and v6 peers silently fall back
+# to the relay instead of connecting peer-to-peer.
+NETBIRD_PORTS="tcp:443 udp:3478 udp:51820"
+# Ports this script has previously managed and should clean up. 51820 is the
+# retired WireGuard listener.
+STALE_PORTS="udp:51820"
+
+CACHE=/jffs/netbird-pi-ip6
+
+# Only hex digits and colons, and only global unicast (2000::/3). This runs on a
+# value that arrives over SSH and ends up in an ip6tables command, so reject
+# anything that could carry a shell metacharacter rather than trying to quote it.
+_valid_ip6() {
+    case "$1" in
+        "") return 1 ;;
+        *[!0-9a-fA-F:]*) return 1 ;;
+        2*:*|3*:*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+NEW_IP=""
+
+# 1. Told to us by the Pi. Whitespace is stripped by word splitting rather than
+# `tr -d "[:space:]"`: busybox tr treats the class as a literal character set, so
+# it silently ate the colons (and the a/c/e/p/s) out of the address.
+# shellcheck disable=SC2086
+set -- ${SSH_ORIGINAL_COMMAND:-}
+FROM_SSH="${1:-}"
+if _valid_ip6 "$FROM_SSH"; then
+    NEW_IP="$FROM_SSH"
+fi
+
+# 2. Last known good, for the boot-time firewall-start run.
+if [ -z "$NEW_IP" ] && [ -r "$CACHE" ]; then
+    read -r CACHED < "$CACHE"
+    if _valid_ip6 "$CACHED"; then
+        NEW_IP="$CACHED"
+    fi
+fi
+
+# 3. Neighbour table, if the router happens to have a global entry.
+if [ -z "$NEW_IP" ]; then
+    FROM_NEIGH=$(ip -6 neigh show | awk -v m="$PI_MAC" 'index($0, m) && /^2/ {print $1; exit}')
+    if _valid_ip6 "$FROM_NEIGH"; then
+        NEW_IP="$FROM_NEIGH"
+    fi
+fi
+
+if [ -z "$NEW_IP" ]; then
+    logger "update-netbird-firewall: no global IPv6 for the Pi (no SSH arg, no cache, none in neighbour table)"
+    exit 1
+fi
+
+# WGSF is traversed unconditionally from FORWARD (`-A FORWARD -j WGSF`, ahead of
+# the LAN-to-LAN accept), so rules here are evaluated for relayed WAN→LAN traffic.
+# Check and insert in the same chain — the original checked FORWARD but inserted
+# into WGSF, so its "already correct" fast path never hit and it rewrote the rules
+# on every single call.
+_rule_exists() {
+    ip6tables -C WGSF -p "$1" --dport "$2" -d "$NEW_IP" -j ACCEPT 2>/dev/null
+}
+
+_drop_rules_for_port() {
+    ip6tables -L WGSF --line-numbers -n | awk "/dpt:$1\$/ {print \$1}" | sort -rn | while read -r n; do
+        ip6tables -D WGSF "$n"
+    done
+}
+
+# Retire anything left over from a previous port set.
+for spec in $STALE_PORTS; do
+    _drop_rules_for_port "${spec#*:}"
+done
+
+changed=0
+for spec in $NETBIRD_PORTS; do
+    proto="${spec%%:*}"
+    port="${spec#*:}"
+    _rule_exists "$proto" "$port" && continue
+    _drop_rules_for_port "$port"
+    ip6tables -I WGSF -p "$proto" --dport "$port" -d "$NEW_IP" -j ACCEPT
+    changed=1
+done
+
+printf "%s\n" "$NEW_IP" > "$CACHE"
+
+if [ "$changed" = "1" ]; then
+    logger "update-netbird-firewall: set NetBird ($NETBIRD_PORTS) to $NEW_IP"
+fi

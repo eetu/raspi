@@ -1,5 +1,16 @@
-"""Cloudflare DDNS: shell script + systemd timer to keep wg.anarkisti.com current.
-Also updates the Asus router ip6tables rule via SSH when the IPv6 prefix changes.
+"""Cloudflare DDNS: shell script + systemd timer keeping netbird.{domain} current.
+
+This is the one record in the zone that points at the *WAN*, not the LAN. The
+NetBird coordinator has to be dialable from anywhere, so it needs a real public
+A + AAAA — everything in PUBLIC_SUBDOMAINS is an A record aimed at an RFC1918
+address, which is a different job (see tasks/cloudflare_dns.py). Because both
+tasks write Cloudflare records, `netbird` must stay out of the subdomain registry
+or the two would fight over the same name every deploy.
+
+Also nudges the Asus router's ip6tables rules over SSH when the IPv6 prefix
+changes: v6 has no NAT, so there is no port forward to configure — the router
+permits ports to a specific address, and that address moves with the prefix. See
+files/router-update-netbird-firewall.sh.
 """
 
 import io
@@ -7,7 +18,7 @@ import io
 from pyinfra.operations import files, systemd
 
 import vault
-from group_data.all import NETWORK, WIREGUARD
+from group_data.all import NETBIRD, NETWORK
 
 DOMAIN = NETWORK["domain"]
 
@@ -15,6 +26,14 @@ _router_configured = bool(NETWORK.get("router_ssh_port"))
 _router_key = vault.asus_router_ssh() if _router_configured else None
 
 if _router_configured:
+    # The Pi's global IPv6 is passed as the remote command, so it arrives on the
+    # router as $SSH_ORIGINAL_COMMAND (dropbear sets it even though the key is
+    # pinned to a forced command). The router cannot work the address out for
+    # itself: IPv6 passthrough leaves it with no address in the Pi's delegated
+    # prefix, and it only holds a neighbour entry for a global address while
+    # actively forwarding to it — so an idle Pi is invisible. Hence the Pi tells it.
+    # See files/router-update-netbird-firewall.sh, which validates the value
+    # before it reaches ip6tables.
     _router_fn = (
         "_update_router_firewall() {\n"
         "    ssh -i /etc/secrets/router_id_ed25519 \\\n"
@@ -22,19 +41,22 @@ if _router_configured:
         "        -o BatchMode=yes \\\n"
         "        -o ConnectTimeout=10 \\\n"
         f"        -p {NETWORK['router_ssh_port']} \\\n"
-        f"        {NETWORK['router_user']}@{NETWORK['router']} \\\n"
+        f'        {NETWORK["router_user"]}@{NETWORK["router"]} "$1" \\\n'
         '        || logger "cloudflare-ddns: router firewall update failed"\n'
         "}\n"
     )
 else:
     _router_fn = ""
 
+# The A record needs a reachable IPv4 WAN address. Leave `public_ipv4` unset (or
+# False) behind CGNAT — the AAAA record still works and peers reach the
+# coordinator over IPv6 only.
 _ipv4_block = (
     (
         "CURRENT_IP=$(curl -sf https://api4.ipify.org || curl -sf https://ipv4.icanhazip.com || true)\n"
         '_update_record A "$CURRENT_IP"'
     )
-    if WIREGUARD.get("public_ipv4")
+    if NETBIRD.get("public_ipv4", True)
     else ""
 )
 
@@ -44,7 +66,7 @@ set -euo pipefail
 
 CF_TOKEN=$(grep '^CF_DNS_API_TOKEN=' /etc/secrets/cloudflare.env | cut -d= -f2-)
 ZONE_ID=$(grep '^zone_id=' /etc/secrets/cloudflare.env | cut -d= -f2-)
-RECORD_NAME="wg.{DOMAIN}"
+RECORD_NAME="{NETBIRD["url_prefix"]}.{DOMAIN}"
 
 {_router_fn}
 _update_record() {{
@@ -56,7 +78,10 @@ _update_record() {{
     RECORD_ID=$(echo "$RECORD" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null || true)
     DNS_IP=$(echo "$RECORD"   | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['content'])" 2>/dev/null || true)
 
-    if [ "$TYPE" = "AAAA" ]; then _update_router_firewall; fi
+    # Run every time, not only on change: the router flushes WGSF on any firewall
+    # restart, so the rule has to be re-asserted rather than assumed. The router
+    # side is idempotent and silent when the rule is already right.
+    if [ "$TYPE" = "AAAA" ]; then _update_router_firewall "$CURRENT"; fi
     if [ "$CURRENT" = "$DNS_IP" ]; then return 0; fi
 
     if [ -n "$RECORD_ID" ]; then

@@ -10,7 +10,7 @@ from pyinfra import logger
 from pyinfra.operations import python
 
 import vault
-from group_data.all import NETWORK, PUBLIC_SUBDOMAINS, WIREGUARD
+from group_data.all import NETBIRD, NETWORK, PUBLIC_SUBDOMAINS
 from tasks.util import optional
 
 DOMAIN = NETWORK["domain"]
@@ -123,7 +123,7 @@ def _upsert(name, rtype, content, *, priority=None, match_prefix=None):
 
 def _reap_orphan_records(lan_ip, protected):
     # Delete A records that point at our LAN IP but aren't in PUBLIC_SUBDOMAINS
-    # (or wg, owned by tasks/ddns.py). These accumulate when a service flips
+    # (or netbird, owned by tasks/ddns.py). These accumulate when a service flips
     # from public → internal and its old public A record would otherwise leak
     # the LAN IP + service inventory via DNS enumeration. Scope is intentionally
     # narrow: same `content` as what this task creates, only A records, never
@@ -175,12 +175,15 @@ def configure_dns(state=None, host=None):
     for subdomain in PUBLIC_SUBDOMAINS:
         _upsert(f"{subdomain}.{DOMAIN}", "A", lan_ip)
 
-    # wg AAAA record is managed by cloudflare-ddns.sh on the Pi (IPv6 via passthrough)
-    if WIREGUARD.get("public_ipv4"):
-        public_ip = _public_ip()
-        _upsert(f"wg.{DOMAIN}", "A", public_ip)
+    # The NetBird coordinator is the one name that must resolve to the WAN, since
+    # peers dial it from outside. Seeded here so the record exists before the
+    # first deploy finishes; cloudflare-ddns.sh on the Pi then keeps both this A
+    # record and the AAAA current as the ISP rotates them (tasks/ddns.py).
+    _netbird = NETBIRD["url_prefix"]
+    if NETBIRD.get("public_ipv4", True):
+        _upsert(f"{_netbird}.{DOMAIN}", "A", _public_ip())
 
-    _reap_orphan_records(lan_ip, set(PUBLIC_SUBDOMAINS) | {"wg"})
+    _reap_orphan_records(lan_ip, set(PUBLIC_SUBDOMAINS) | {_netbird})
 
     if EMAIL:
         _configure_email_dns()

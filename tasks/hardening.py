@@ -6,8 +6,13 @@ from pyinfra import host
 from pyinfra.facts.server import Command, KernelVersion
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import NETWORK, WIREGUARD
+from group_data.all import NETBIRD, NETWORK
 from tasks.util import feature, optional
+
+# NetBird overlay ranges. A connected peer is treated like a LAN client, so these
+# stand in for the old WireGuard subnet everywhere it appeared in the rules below.
+MESH_V4 = NETBIRD["account_settings"]["network_range"]
+MESH_V6 = NETBIRD["account_settings"]["network_range_v6"]
 
 
 def _kver_tuple(v: str) -> tuple[int, int, int]:
@@ -175,15 +180,67 @@ if feature("camera") and _ocular:
         f"comment 'ocular LAN (traefik upstream)'\n        "
     )
 
+# NetBird ingress, only on the host that actually runs the coordinator + routing
+# peer. This is the one place the rules differ meaningfully per host: the VPN host
+# opens 443 to the world (Traefik's allowlist decides which vhost answers) plus
+# STUN, and permits forwarding off the mesh interface. A camera node has no public
+# exposure and no peers to route for, so it keeps 443 LAN-only and gets neither.
+_vpn = feature("vpn")
+# The agent's WireGuard port, opened only when declared. Without it peers cannot
+# hole-punch to this host and every mesh connection falls back to the relay — which
+# runs on this same Pi, so it is pure userspace overhead on the busiest path.
+# WireGuard is safe to expose: it silently drops unauthenticated packets.
+_wg_port = NETBIRD.get("agent_wireguard_port") if _vpn else None
+_wg_rule = f"{_wg_port}udp " if _wg_port else ""
+_wg_cmd = (
+    f"ufw allow {_wg_port}/udp comment 'NetBird agent WireGuard (direct p2p)'\n        "
+    if _wg_port
+    else ""
+)
+
+if _vpn:
+    _mesh_rule = f"from {MESH_V4} 22tcp from {MESH_V6} 22tcp from {MESH_V4} 53 from {MESH_V6} 53 "
+    _https_rule = f"443tcp {NETBIRD['stun_port']}udp {_wg_rule}"
+    _route_rule = "route wt0"
+    _mesh_cmd = (
+        f"ufw allow from {MESH_V4} to any port 22 proto tcp comment 'SSH mesh'\n        "
+        f"ufw allow from {MESH_V6} to any port 22 proto tcp comment 'SSH mesh v6'\n        "
+        f"ufw allow from {MESH_V4} to any port 53 comment 'DNS mesh'\n        "
+        f"ufw allow from {MESH_V6} to any port 53 comment 'DNS mesh v6'\n        "
+    )
+    # 443 is open to the world here, not just the LAN: the NetBird coordinator has
+    # to be reachable from anywhere. Traefik's `internal-only` ipAllowList
+    # (tasks/traefik.py) is what keeps every *other* vhost internal — this rule
+    # deliberately delegates that call to the proxy, the only layer that can tell
+    # the vhosts apart. STUN is UDP and unproxyable, so it is exposed directly.
+    _https_cmd = (
+        "ufw allow 443/tcp comment 'HTTPS (Traefik; NetBird public, rest allowlisted)'\n        "
+        f"ufw allow {NETBIRD['stun_port']}/udp comment 'NetBird STUN'\n        "
+        f"{_wg_cmd}"
+    )
+    # `default deny routed` is in force, so the routing peer needs forwarding
+    # allowed off its interface for mesh clients to reach the LAN. NetBird writes
+    # its own nftables rules too; if peers show Connected but cannot reach
+    # anything, suspect ufw chain ordering here first (NetBird documents the
+    # conflict) and read `ufw status verbose` before blaming the mesh.
+    _route_cmd = "ufw route allow in on wt0 comment 'NetBird forwarding'"
+else:
+    _mesh_rule = ""
+    _https_rule = f"from {NETWORK['lan_cidr']} 443tcp "
+    _route_rule = ""
+    _mesh_cmd = ""
+    _https_cmd = (
+        f"ufw allow from {NETWORK['lan_cidr']} to any port 443 proto tcp "
+        f"comment 'HTTPS LAN'\n        "
+    )
+    _route_cmd = "true"
+
 _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 22tcp "
-    f"from {WIREGUARD['subnet']} 22tcp "
+    f"{_mesh_rule}"
     f"from {NETWORK['lan_cidr']} 53 "
-    f"from {WIREGUARD['subnet']} 53 "
     f"from {NETWORK['lan_cidr']} 80tcp "
-    f"from {NETWORK['lan_cidr']} 443tcp "
-    f"from {WIREGUARD['subnet']} 443tcp "
-    f"{WIREGUARD['port']}udp "
+    f"{_https_rule}"
     f"from {NETWORK['lan_cidr']} 1900udp "
     f"from {NETWORK['lan_cidr']} 8096tcp "
     f"from {NETWORK['lan_cidr']} 21027udp "
@@ -191,7 +248,7 @@ _ufw_rules = (
     f"from {NETWORK['lan_cidr']} 22000udp "
     f"{_beszel_hub_rule}"
     f"{_ocular_rule}"
-    f"route wg0"
+    f"{_route_rule}"
 )
 
 server.shell(
@@ -207,19 +264,14 @@ server.shell(
         ufw default allow outgoing
         ufw default deny routed
         ufw allow from {NETWORK["lan_cidr"]} to any port 22 proto tcp comment 'SSH LAN'
-        ufw allow from {WIREGUARD["subnet"]} to any port 22 proto tcp comment 'SSH WG'
-        ufw allow from {NETWORK["lan_cidr"]} to any port 53 comment 'DNS LAN'
-        ufw allow from {WIREGUARD["subnet"]} to any port 53 comment 'DNS WG'
+        {_mesh_cmd}ufw allow from {NETWORK["lan_cidr"]} to any port 53 comment 'DNS LAN'
         ufw allow from {NETWORK["lan_cidr"]} to any port 80 proto tcp comment 'HTTP LAN'
-        ufw allow from {NETWORK["lan_cidr"]} to any port 443 proto tcp comment 'HTTPS LAN'
-        ufw allow from {WIREGUARD["subnet"]} to any port 443 proto tcp comment 'HTTPS WG'
-        ufw allow {WIREGUARD["port"]}/udp comment 'WireGuard'
-        ufw allow from {NETWORK["lan_cidr"]} to any port 1900 proto udp comment 'SSDP DLNA'
+        {_https_cmd}ufw allow from {NETWORK["lan_cidr"]} to any port 1900 proto udp comment 'SSDP DLNA'
         ufw allow from {NETWORK["lan_cidr"]} to any port 8096 proto tcp comment 'VuIO DLNA'
         ufw allow from {NETWORK["lan_cidr"]} to any port 21027 proto udp comment 'Syncthing discovery'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto tcp comment 'Syncthing sync TCP'
         ufw allow from {NETWORK["lan_cidr"]} to any port 22000 proto udp comment 'Syncthing QUIC'
-        {_beszel_hub_cmd}{_ocular_cmd}ufw route allow in on wg0 comment 'WireGuard forwarding'
+        {_beszel_hub_cmd}{_ocular_cmd}{_route_cmd}
         ufw --force enable
         echo "$WANT" > "$STAMP"
         """,

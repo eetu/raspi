@@ -24,8 +24,6 @@ DEPLOY = [
     ("cloudflare_dns", "dns"),
     ("unbound", "dns"),
     ("pihole", "dns"),
-    ("wireguard", "vpn"),
-    ("wg_portal", "vpn"),
     ("traefik", "proxy"),
     ("host_discover", "base"),
     ("cifs", "storage"),
@@ -46,6 +44,19 @@ DEPLOY = [
     ("vaultwarden", "apps"),
     ("kanidm", "sso"),
     ("kanidm_oidc", "sso"),
+    # NetBird sits here, not up with the old wireguard slot: the coordinator needs
+    # podman + Traefik to be up, and the Kanidm federation needs the client secret
+    # kanidm_oidc has just generated.
+    #
+    # The order within the bundle is what keeps the bring-up to two deploys rather
+    # than three. netbird_agent runs BEFORE netbird_reconcile so that on deploy 2 —
+    # when secrets.py has finally seen a setup key in the vault — the peer enrols
+    # first and reconcile can then resolve it for the routes and the nameserver
+    # group in the same pass. Reversed, routes would always lag a deploy behind.
+    ("netbird", "vpn"),
+    ("netbird_bootstrap", "vpn"),
+    ("netbird_agent", "vpn"),
+    ("netbird_reconcile", "vpn"),
     ("oauth2_proxy", "sso"),
     ("memos", "apps"),
     ("represent", "apps"),
@@ -88,6 +99,9 @@ FEATURE_DEPS = {
     "scribe": {"containers"},
     "sso": {"containers"},  # kanidm runs as a container
     "monitoring": {"containers"},  # ntfy/gatus/trivy/beszel/dashboard are containers
+    # netbird-server is a container behind Traefik, and its embedded IdP federates
+    # Kanidm — so all three are genuinely load-bearing, not just adjacent.
+    "vpn": {"containers", "proxy", "sso"},
     "backup": {"storage"},  # restic writes to the `backups` CIFS share
     "proxy": {"dns"},  # traefik's DNS-01 challenge uses the Cloudflare token
     "camera": {"base"},
