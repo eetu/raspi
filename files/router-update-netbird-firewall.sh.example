@@ -26,15 +26,17 @@
 #   2. Copy to router:
 #        scp files/router-update-netbird-firewall.sh USER@ROUTER:/jffs/scripts/update-netbird-firewall.sh
 #        ssh USER@ROUTER chmod +x /jffs/scripts/update-netbird-firewall.sh
-#   3. Optional, and a no-op on stock Asuswrt — add to firewall-start:
+#   3. Add to firewall-start, so the rules are re-asserted after the router
+#      rebuilds its firewall:
 #        echo /jffs/scripts/update-netbird-firewall.sh > /jffs/scripts/firewall-start
 #        chmod +x /jffs/scripts/firewall-start
-#      firewall-start only runs when custom JFFS scripts are enabled (`nvram get
-#      jffs2_scripts` = 1), which is a Merlin feature; on stock firmware both
-#      jffs2_scripts and jffs2_on are empty and the hook never fires. Verified on a
-#      ZenWiFi BT8: WGSF came back EMPTY after a reboot. That is tolerable because
-#      the Pi's DDNS timer re-asserts the rules over SSH every 5 minutes anyway —
-#      so a reboot costs at most 5 minutes of closed IPv6, not a permanent outage.
+#      Whether this hook actually fires on stock Asuswrt is UNVERIFIED. The nvram
+#      keys usually cited for it (jffs2_scripts, jffs2_on) are empty on a ZenWiFi
+#      BT8, but that has not been shown to mean the hook is disabled, and WGSF was
+#      observed empty after one reboot without the cause being pinned down. Either
+#      way it is not load-bearing: the Pi's DDNS timer invokes this script over SSH
+#      every 5 minutes, so the worst case after a reboot is a few minutes of closed
+#      inbound IPv6, not a permanent outage.
 #   4. Add to the router's SSH authorized keys (Administration → System on stock
 #      Asuswrt; it is stored in nvram, so editing the file alone does not persist):
 #        command="/jffs/scripts/update-netbird-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
@@ -46,9 +48,15 @@ PI_MAC="xx:xx:xx:xx:xx:xx"  # Pi's Ethernet MAC — find with: ip link show eth0
 # forward, so this chain is the only gate — omit it and v6 peers silently fall back
 # to the relay instead of connecting peer-to-peer.
 NETBIRD_PORTS="tcp:443 udp:3478 udp:51820"
-# Ports this script has previously managed and should clean up. 51820 is the
-# retired WireGuard listener.
-STALE_PORTS="udp:51820"
+# Ports this script previously managed and should now remove. Empty today: 51820
+# used to be the retired WireGuard listener, but it is a live NetBird port now.
+#
+# Leaving it in both lists caused a real bug — every run deleted the 51820 rule
+# and the main loop immediately re-added it, so the rules churned every 5 minutes
+# (visible as a "set NetBird ..." syslog line on every single call instead of only
+# on change) with a brief window where the port was closed. The loop below now
+# skips any stale port that is also live, so the two lists cannot fight again.
+STALE_PORTS=""
 
 CACHE=/jffs/netbird-pi-ip6
 
@@ -112,9 +120,14 @@ _drop_rules_for_port() {
     done
 }
 
-# Retire anything left over from a previous port set.
+# Retire anything left over from a previous port set, skipping any port that is
+# also live — deleting one of those here just means re-adding it below.
 for spec in $STALE_PORTS; do
-    _drop_rules_for_port "${spec#*:}"
+    port="${spec#*:}"
+    case " $NETBIRD_PORTS " in
+        *":$port "*) continue ;;
+    esac
+    _drop_rules_for_port "$port"
 done
 
 changed=0
