@@ -38,7 +38,6 @@ apt.packages(
         # a hard-coded IP that DHCP loves to renegotiate.
         "avahi-daemon",
         "libnss-mdns",
-        "wireguard-tools",
         "fail2ban",
         "unattended-upgrades",
         "apt-listchanges",

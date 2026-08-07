@@ -2,12 +2,38 @@
 
 import json
 import re
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterable
 from pathlib import Path
+
+
+def ssh_cat(path: str, host: str = "raspi") -> str:
+    """Read a root-owned file off the Pi over SSH, or "" if it isn't there.
+
+    For the local half of a two-stage task: a `server.shell` step drops a
+    server-generated credential in a file, then a `python.call` step reads it
+    here and persists it to the vault (which only exists on the control host).
+    `host` is an ssh_config alias, not the pyinfra inventory name — the inventory
+    addresses hosts by IP, and these tasks are raspi-only.
+    """
+    r = subprocess.run(
+        ["ssh", host, f"sudo cat {path} 2>/dev/null"],
+        capture_output=True,
+        text=True,
+    )
+    return r.stdout.strip()
+
+
+def ssh_rm(path: str, host: str = "raspi") -> None:
+    """Delete a root-owned file on the Pi. Pairs with `ssh_cat` — a handoff file
+    is removed once its value is safely in the vault, so it never lingers on the
+    SD card."""
+    subprocess.run(["ssh", host, f"sudo rm -f {path}"], capture_output=True)
+
 
 _CACHE_PATH = Path(__file__).resolve().parent.parent / ".resolved-tags.json"
 

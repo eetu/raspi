@@ -10,15 +10,193 @@ NETWORK = {
     "domain": "yourdomain.com",  # domain managed in Cloudflare
 }
 
-WIREGUARD = {
-    "subnet": "10.8.0.0/24",  # VPN subnet — change if it conflicts with your LAN
-    "ip": "10.8.0.1",  # Pi's VPN IPv4 address
-    "subnet6": "fd00::/64",  # VPN IPv6 ULA subnet
-    "ip6": "fd00::1",  # Pi's VPN IPv6 address
-    "port": 51820,
-    # Optional: set if IPv4 WAN is reachable (not behind CGNAT).
-    # Enables A record + DDNS for wg endpoint. Omit if behind CGNAT.
-    # "public_ipv4": True,
+# NetBird — self-hosted zero-trust overlay, the only route in from outside the
+# LAN. Required tier: a missing dict should fail the deploy loudly rather than
+# ship a Pi with no remote access.
+#
+# `netbird` is deliberately absent from _SUBDOMAIN_NAMES at the bottom of this
+# file. Every name there gets a Cloudflare A record pointing at the *LAN* IP; the
+# coordinator needs a genuinely WAN-pointing A + AAAA, which tasks/ddns.py owns
+# and refreshes every 5 minutes. The Pi-hole split-DNS override that keeps LAN
+# clients off the router's hairpin comes from the `netbird` entry in
+# KANIDM_OIDC_CLIENTS instead (public_dns: False → Pi-hole only).
+NETBIRD = {
+    "url_prefix": "netbird",
+    # Traefik upstreams. See tasks/traefik.py: three routers, because the gRPC
+    # paths need an h2c backend and the dashboard is a priority-1 catch-all.
+    #
+    # `host` is what Traefik dials, not what netbird-server binds. The server runs
+    # with Network=host and derives its bind from the *port* of listenAddress only
+    # (combined/cmd/root.go throws the host part away), so it binds 0.0.0.0:8081
+    # and ufw's default-deny is what keeps it off the LAN. The dashboard has no
+    # such limit — it runs in a bridge net and really does publish on loopback.
+    "host": "127.0.0.1",
+    "port": 8081,  # netbird-server: REST + gRPC + relay WebSocket + embedded IdP
+    "dashboard_port": 8082,  # netbirdio/dashboard nginx
+    # STUN is UDP and cannot be proxied — it is reachable directly on the host and
+    # forwarded by the router. Everything else rides 443 through Traefik.
+    "stun_port": 3478,
+    # Both also bind on the host (Network=host), so they must not collide with
+    # anything in the CLAUDE.md ports table — 9090 in particular is oauth2-proxy.
+    "health_port": 9092,
+    "metrics_port": 9091,
+    "log_level": "info",
+    # Hide the embedded IdP's email/password login so Kanidm is the only way in.
+    # This is a SERVER-config switch (server.auth.localAuthDisabled), not an
+    # account setting: the account API exposes a `local_auth_disabled` field but it
+    # is a read-only mirror — PUTting it is silently ignored, because
+    # IsLocalAuthDisabled() reads the IdP manager, not account settings.
+    #
+    # REBUILD CAVEAT: /api/setup creates a *local* owner to hand out the first API
+    # token, and the same flag gates the embedded-IdP user-creation paths
+    # (createEmbeddedIdpUser, CreateUserInvite, AcceptUserInvite). If a bootstrap
+    # on a blank store ever fails with "local user creation is disabled", set this
+    # to False for that one deploy, let the bootstrap complete, then set it back.
+    "local_auth_disabled": True,
+    # Server and dashboard releases are coupled — bump together. `resolve_latest`
+    # is deliberately absent: this is core infra on a 1 GB Pi, and a surprise
+    # minor is how you lose remote access (cf. kanidm 1.10.3 SIGILL on the Pi 4).
+    "server_image": "docker.io/netbirdio/netbird-server:0.76.1",
+    "dashboard_image": "docker.io/netbirdio/dashboard:v2.90.9",
+    # The netbird CLIENT on this host, enrolled as the routing peer that carries
+    # LAN traffic for everyone else. Keep == server_image tag; tasks/netbird_agent.py
+    # installs/upgrades/downgrades the apt package on drift.
+    "agent_version": "0.76.1",
+    "agent_hostname": "raspi",  # referenced by `peer_hostname` in routes below
+    # UDP port the agent's kernel WireGuard interface listens on. NetBird needs no
+    # inbound port to work — peers fall back to the relay — but forwarding this one
+    # to the Pi lets peers hole-punch straight to it, which turns the data path from
+    # a userspace WSS relay hop (on this very Pi) into kernel WireGuard. Worth it on
+    # a 1 GB host carrying music/syncthing/audiobook traffic over the mesh.
+    #
+    # Declared here rather than left to the client default so the ufw rule
+    # (tasks/hardening.py) and the `netbird up --wireguard-port` flag cannot drift.
+    # Set to None to keep the port closed and stay relay-only.
+    "agent_wireguard_port": 51820,
+    # Server paths are `-server` suffixed on purpose: the netbird *agent* owns
+    # /var/lib/netbird (its profile and peer identity — active_profile.json,
+    # default.json, state.json) and /var/log/netbird, so the coordinator must not
+    # share either directory with it.
+    "install_dir": "/etc/netbird-server",
+    "data_dir": "/var/lib/netbird-server",
+    # One-time POST /api/setup owner. The password auto-generates into the vault;
+    # once Kanidm federation is live this is only a break-glass local login.
+    #
+    # THE DOMAIN OF THIS ADDRESS IS LOAD-BEARING. NetBird derives the account's
+    # domain from its owner and auto-joins only same-domain sign-ins, so a
+    # federated user whose email domain differs gets their own separate account
+    # rather than joining this one — which silently splits the mesh in half (the
+    # coordinator's peers in one account, the human's in another). Keep this on the
+    # same domain as the people in KANIDM_PERSONS.
+    "bootstrap_owner_email": "netbird-bootstrap@yourdomain.com",
+    "bootstrap_owner_name": "Bootstrap Owner",
+    # Emails promoted to NetBird admin on every reconcile. The embedded IdP
+    # re-issues JWTs and drops upstream role claims, so admin cannot be
+    # JWT-driven — this is the supported workaround. Must match a Kanidm person's
+    # `email` in KANIDM_PERSONS, and they must have signed in at least once.
+    "admin_emails": ["you@yourdomain.com"],
+    # Account-level settings, PUT on every reconcile (declared keys merged over
+    # whatever NetBird already has). The two mesh ranges are read at plan time by
+    # tasks/hardening.py and tasks/network_restrict.py, so they must be declared
+    # here rather than left to NetBird's random default.
+    "account_settings": {
+        "dns_domain": "mesh.yourdomain.com",
+        "network_range": "100.92.0.0/16",
+        # ULA /64 for the dual-stack overlay (NetBird v0.71+). Distinct from the
+        # retired WireGuard fd00::/64 so stale routes can't shadow it.
+        "network_range_v6": "fd0e:7b1d:4a2c::/64",
+        # NB: only keys netbird-server actually returns in /accounts settings
+        # belong here. A key it does not echo back can never compare equal, so it
+        # would re-PUT on every single deploy — `user_approval_required` and
+        # `peer_approval_enabled` did exactly that before being removed (they are
+        # not part of the v0.76.1 settings schema). The reconcile step warns about
+        # unrecognised keys so the next typo is visible instead of silent.
+        # Keep False while idm.{domain} is allowlisted. Enabling it forces every
+        # SSO-enrolled peer to periodically re-authenticate in a browser against
+        # Kanidm, which an off-LAN peer cannot reach — it would simply strand.
+        # See "Enrolling peers" in CLAUDE.md.
+        "peer_login_expiration_enabled": False,
+        # Lets the routing peer answer DNS for the networks it carries.
+        "routing_peer_dns_resolution_enabled": True,
+        "jwt_groups_enabled": False,
+        "jwt_allow_groups": [],
+    },
+    # Groups to ensure exist. NetBird auto-creates `All` (every peer).
+    "groups": ["admins"],
+    # Peer-enrolment keys. The plaintext key is returned only by the POST, so the
+    # reconcile step captures it into the vault as `setup_key_<name>`;
+    # tasks/secrets.py then drops the `devices` one at
+    # /etc/secrets/netbird-setup-key for this host's own agent to enrol with.
+    # NetBird caps expires_in at one year (and requires at least a day), so there
+    # is no "never" — the reconcile step replaces a key once it is inside
+    # `renew_within_days` of expiry, the same way it rotates the API token.
+    "setup_keys": [
+        {
+            "name": "devices",
+            "type": "reusable",
+            "expires_in": 31536000,  # seconds; 365 days is the API maximum
+            "usage_limit": 0,  # 0 = unlimited
+            "auto_groups": [],
+            "ephemeral": False,
+        },
+    ],
+    # Which of the keys above this host enrols with. It is the only one
+    # tasks/secrets.py drops on disk; the rest stay in the vault to be pasted into
+    # phones and laptops.
+    "agent_setup_key": "devices",
+    # How close to expiry a setup key or the API token may get before the
+    # reconcile step mints a replacement. Deploy at least this often and the
+    # credentials never lapse without anyone touching a dashboard.
+    "renew_within_days": 30,
+    # Network routes carried by the `raspi` peer. This is what replaces the old
+    # wg0 AllowedIPs: mesh clients reach LAN hosts (and every service behind
+    # Traefik) through the Pi.
+    "routes": [
+        {
+            "network_id": "home-lan",
+            "description": "Home LAN via the Pi, so mesh clients reach every LAN host and the Traefik vhosts.",
+            "network": "192.168.x.0/24",  # keep == NETWORK["lan_cidr"]
+            "peer_hostname": "raspi",
+            "groups": ["All"],
+            "enabled": True,
+            "masquerade": True,
+            "metric": 9999,
+        },
+        # Opt-in full tunnel. skip_auto_apply advertises the route to everyone
+        # without applying it, so the default stays split-tunnel and a client
+        # only routes everything through home after selecting it (CLI:
+        # `netbird routes select secure-all-traffic`). NetBird auto-creates the
+        # matching ::/0 route for IPv6-capable peers.
+        {
+            "network_id": "secure-all-traffic",
+            "description": "Route ALL traffic through home — turn on for untrusted networks (cafe / hotel Wi-Fi). Opt-in; default is split tunnel.",
+            "network": "0.0.0.0/0",
+            "peer_hostname": "raspi",
+            "groups": ["All"],
+            "enabled": True,
+            "masquerade": True,
+            "metric": 9999,
+            "skip_auto_apply": True,
+        },
+    ],
+    # Mesh DNS: send {domain} queries to Pi-hole so `memo.{domain}` and friends
+    # resolve to their LAN IPs for connected peers, exactly as on the LAN. The
+    # nameserver IP is the Pi's *mesh* address, which NetBird assigns — the
+    # reconcile step resolves it from /api/peers rather than pinning it, so it
+    # self-heals if the peer is ever deleted and re-enrolled.
+    "nameservers": [
+        {
+            "name": "home-dns",
+            "description": "Pi-hole for the home domain (split DNS over the mesh).",
+            "peer_hostname": "raspi",  # resolved to the peer's mesh IP
+            "port": 53,
+            "groups": ["All"],
+            "domains": ["yourdomain.com"],
+            "enabled": True,
+            "primary": False,
+            "search_domains_enabled": False,
+        },
+    ],
 }
 
 # Inbound email DNS — apex MX/SPF/DKIM/DMARC + provider domain verification.
@@ -318,15 +496,18 @@ AUDIOBOOKSHELF = {
     "resolve_latest": False,
 }
 
-WGPORTAL = {
-    "host": "127.0.0.1",
-    "port": 8888,
-    "version": "v2.2.3",
-}
-
 TRAEFIK = {
     "host": "0.0.0.0",
     "version": "v3.6.12",
+    # Subdomains exempt from the `internal-only` ipAllowList. Public 443 is
+    # forwarded to Traefik so the NetBird coordinator is reachable, and Traefik
+    # matches on Host header rather than source IP — so without the allowlist
+    # every vhost on the box would answer the internet. The polarity is
+    # deliberate: the middleware is attached by default and only these names opt
+    # out, so a route added later is LAN-only until someone says otherwise.
+    # Add "idm" here if you want remote *browser* SSO login (see tasks/traefik.py);
+    # off-LAN peer enrolment uses a setup key and does not need it.
+    "public_hosts": ("netbird",),
 }
 
 # Aliases written into /etc/hosts. Values may be either a literal IP (e.g.
@@ -433,7 +614,14 @@ RESTIC = {
         "/var/lib/yarr",
         "/var/lib/audiobookshelf",
         "/var/lib/syncthing",
-        "/var/lib/wg-portal",
+        # NetBird coordinator state: SQLite store (peers, keys, ACLs, routes),
+        # the embedded IdP's user db, and the activity log. Losing it means every
+        # peer has to re-enrol, so it is the highest-value path in this list.
+        "/var/lib/netbird-server",
+        # The Pi's own agent profile/identity. Tiny, and the deploy would re-enrol
+        # from the setup key anyway — but restoring it avoids leaving an orphan peer
+        # (and a stale mesh IP) behind on a rebuild.
+        "/var/lib/netbird",
         "/var/lib/beszel",
         "/var/lib/chat",
         "/var/lib/represent",  # represent.db (profiles/projects/documents)
@@ -707,13 +895,27 @@ KANIDM_OIDC_CLIENTS = {
         "secret_field": "gatus_client_secret",
         "disable_pkce": True,
     },
-    "wgportal": {
-        "display_name": "WireGuard Portal",
-        "url_prefix": "vpn",
-        "public_dns": True,
-        "redirect_path": "/api/v0/auth/login/oidc/callback",
+    # NetBird federates this client into its own embedded IdP (Dex) rather than
+    # consuming it directly, which makes the redirect URI unusual in two ways:
+    #
+    #  - `public_dns: False` even though netbird.{domain} IS in public DNS. This
+    #    flag only controls whether tasks/cloudflare_dns.py writes a LAN-IP A
+    #    record; the coordinator's public A + AAAA are WAN-pointing and owned by
+    #    tasks/ddns.py. False here means "Pi-hole split-DNS override only", which
+    #    is exactly what is wanted — see the NETBIRD dict for the full story.
+    "netbird": {
+        "display_name": "NetBird",
+        "url_prefix": "netbird",
+        "public_dns": False,
+        # Dex uses this bare callback, NOT the /oauth2/callback/<connector-id>
+        # form the NetBird docs describe — confirmed by reading the redirect_uri
+        # off a live authorize request. An earlier version of this file carried
+        # machinery to feed the suffixed URL back from the vault; it was never
+        # used, so it is gone. If a future NetBird switches to the suffixed form,
+        # login fails with an invalid-redirect error and this is the place to fix.
+        "redirect_path": "/oauth2/callback",
         "scopes": ["openid", "email", "profile"],
-        "secret_field": "wgportal_client_secret",
+        "secret_field": "netbird_client_secret",
     },
     "audiobookshelf": {
         "display_name": "Audiobookshelf",

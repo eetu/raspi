@@ -169,8 +169,12 @@ os.replace(tmp, os.environ["RESULT"])
 """
 
     # --- Binary version check script (runs daily) ---
-    # Checks Traefik and wg-portal against their latest GitHub releases.
+    # Checks Traefik and the NetBird client against their latest GitHub releases.
     # Sends one ntfy notification per outdated binary (skipped when NTFY_URL empty).
+    #
+    # One check covers the whole NetBird stack: the agent, the server image and the
+    # dashboard image are all pinned to the same release and bumped together, so
+    # the installed client version is a faithful proxy for all three.
 
     version_check = f"""\
 #!/bin/bash
@@ -200,8 +204,13 @@ _check() {{
 TRAEFIK_VER=$(/usr/local/bin/traefik version 2>/dev/null | awk '/Version:/ {{print "v"$2}}' || echo "")
 _check "Traefik" "$TRAEFIK_VER" "traefik/traefik"
 
-WGP_VER=$(/usr/local/bin/wg-portal --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+\\.[0-9]+' | head -1 || echo "")
-_check "wg-portal" "$WGP_VER" "h44z/wg-portal"
+# `netbird version` reports a bare semver; the release tags are v-prefixed, so add
+# the v back before comparing. Guarded with `if` rather than `&&` because this is
+# the last statement and `set -e` would turn a false test into a unit failure.
+NETBIRD_VER=$(netbird version 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1 || echo "")
+if [ -n "$NETBIRD_VER" ]; then
+    _check "NetBird" "v$NETBIRD_VER" "netbirdio/netbird"
+fi
 """
 
     # --- Systemd units ---

@@ -11,10 +11,15 @@ import io
 
 from pyinfra.operations import files, server, systemd
 
-from group_data.all import NETWORK, WIREGUARD
+from group_data.all import NETBIRD, NETWORK
 
 LAN_CIDR = NETWORK["lan_cidr"]
-WG_SUBNET = WIREGUARD["subnet"]
+# The NetBird overlay ranges have to be reachable for the same reason the old
+# WireGuard subnet did: these rules sit on the *output* hook, so a reply packet
+# from a restricted service back to a mesh client is filtered too. Without both
+# families here, a connected peer's requests would hang rather than be refused.
+MESH_V4 = NETBIRD["account_settings"]["network_range"]
+MESH_V6 = NETBIRD["account_settings"]["network_range_v6"]
 
 # Services restricted to LAN-only access, mapped to their systemd unit names.
 # VuIO additionally needs SSDP multicast (239.255.255.250).
@@ -49,7 +54,9 @@ RESTRICTED = [
     "transcoder",
     # dice keeps all room state in memory — no outbound calls needed.
     "dice",
-    "wg-portal",
+    # Neither netbird unit is restricted, and both for good reason: the
+    # coordinator's embedded IdP fetches Kanidm's discovery document and the agent
+    # has to reach arbitrary peers and relays to do NAT traversal at all.
     "vuio",
     # zot serves a purely private registry — no upstream sync/mirror, so it
     # never needs to reach the internet. Pushes/pulls are LAN ingress, unaffected.
@@ -61,9 +68,9 @@ table inet service_restrict {{
     chain output {{
         type filter hook output priority 10 ; policy accept ;
 
-        # Allow localhost, LAN, and WireGuard subnet for all services
-        ip daddr {{ 127.0.0.0/8, {LAN_CIDR}, {WG_SUBNET} }} accept
-        ip6 daddr {{ ::1, fe80::/10 }} accept
+        # Allow localhost, LAN, and the NetBird overlay for all services
+        ip daddr {{ 127.0.0.0/8, {LAN_CIDR}, {MESH_V4} }} accept
+        ip6 daddr {{ ::1, fe80::/10, {MESH_V6} }} accept
 
         # Allow SSDP multicast (DLNA discovery)
         ip daddr 239.255.255.250 accept

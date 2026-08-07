@@ -10,6 +10,22 @@ any edit here.
 The wildcard TLS cert (`*.{domain}`) is declared on the idm router because
 idm/Kanidm is always present — that keeps a single DNS-01 wildcard covering
 every subdomain regardless of which optional services are deployed.
+
+## The internal-only allowlist
+
+Public 443 is forwarded to this process so the NetBird coordinator is reachable
+from the internet. Traefik matches on Host header, not source IP, so without a
+filter every vhost on the box would answer anyone who sets the header — including
+the ones with no authentication of their own (halo, ntfy, tracker, party, dice,
+the zot registry, and the Mac mini's ai/comfy/stt/tts upstreams).
+
+So `internal-only` (an ipAllowList over the LAN, both NetBird mesh ranges, and
+loopback) is attached to **every** router by default, and only the subdomains in
+TRAEFIK["public_hosts"] opt out. The polarity is the point: a route added later
+without thinking about it is LAN-only, not silently internet-facing. Anything
+generated outside the ROUTES loop — the required pihole/idm/auth blocks and the
+per-service `*-monitor` bypass routers — has to opt in explicitly, which is why
+`_router_block` is not the only place the middleware appears.
 """
 
 import hashlib
@@ -21,6 +37,7 @@ import vault
 from group_data.all import (
     KANIDM,
     KANIDM_OIDC_CLIENTS,
+    NETBIRD,
     NETWORK,
     OAUTH2_PROXY,
     PIHOLE,
@@ -55,7 +72,6 @@ SYNCTHING = optional("SYNCTHING")
 TRACKER = optional("TRACKER")
 TTS = optional("TTS")
 VAULTWARDEN = optional("VAULTWARDEN")
-WGPORTAL = optional("WGPORTAL")
 YARR = optional("YARR")
 ZOT = optional("ZOT")
 
@@ -109,7 +125,6 @@ if SUPERSAW and _oauth2_active:
 ROUTES = [
     ("halo", HALO, "halo"),
     ("audiobooks", AUDIOBOOKSHELF, "audiobooks"),
-    ("vpn", WGPORTAL, "vpn"),
     ("ntfy", NTFY, "ntfy"),
     ("gatus", GATUS, "gatus"),
     ("vault", VAULTWARDEN, "vault"),
@@ -151,16 +166,46 @@ ROUTES = [
 ]
 
 
-def _router_block(name, prefix, aliases=(), middlewares=()):
+# Hostnames the allowlist does not apply to. Keyed on the subdomain rather than
+# the router name on purpose: reachability is a property of the vhost, and one
+# vhost can need several routers (netbird needs three — gRPC, backend, dashboard).
+# Keying on router names would silently guard two of those three.
+PUBLIC_HOSTS = frozenset(TRAEFIK.get("public_hosts", ()))
+
+# Sources allowed to reach a non-public vhost: the LAN, both NetBird mesh ranges
+# (a connected peer is as trusted as a LAN client), and loopback for the Pi's own
+# fan-in (raspi-dashboard reading gatus, gatus probing everything else).
+_INTERNAL_CIDRS = (
+    NETWORK["lan_cidr"],
+    NETBIRD["account_settings"]["network_range"],
+    NETBIRD["account_settings"]["network_range_v6"],
+    "127.0.0.1/32",
+    "::1/128",
+)
+
+
+def _guard(host_prefix, middlewares=()):
+    """Middleware list for a router, with the internal-only allowlist prepended
+    unless its vhost is listed in TRAEFIK["public_hosts"]. Deny-by-default: every
+    caller gets the guard for free and has to opt out by name."""
+    if host_prefix in PUBLIC_HOSTS:
+        return list(middlewares)
+    return ["internal-only", *middlewares]
+
+
+def _router_block(name, prefix, aliases=(), middlewares=(), *, service=None, priority=None):
     hosts = " || ".join(f"Host(`{p}.{DOMAIN}`)" for p in (prefix, *aliases))
     lines = [
         f"    {name}:",
         f'      rule: "{hosts}"',
-        f"      service: {name}",
+        f"      service: {service or name}",
         "      entryPoints: [websecure]",
     ]
-    if middlewares:
-        lines.append(f"      middlewares: [{', '.join(middlewares)}]")
+    if priority is not None:
+        lines.append(f"      priority: {priority}")
+    _mws = _guard(prefix, middlewares)
+    if _mws:
+        lines.append(f"      middlewares: [{', '.join(_mws)}]")
     lines += ["      tls:", "        certResolver: cloudflare"]
     return "\n".join(lines)
 
@@ -270,6 +315,15 @@ files.put(
 
 # --- Dynamic config (generated from ROUTES) ---
 
+
+def _mw_yaml(host_prefix, extra=()):
+    """The `middlewares:` line for a hand-written router block. Goes through
+    _guard, so these routers pick up the internal-only allowlist on the same
+    deny-by-default terms as the generated ones."""
+    mws = _guard(host_prefix, extra)
+    return f"\n      middlewares: [{', '.join(mws)}]" if mws else ""
+
+
 # Required routers — always emitted.
 _required_routers = f"""\
     # Unauthenticated Pi-hole API path used by Gatus uptime checks.
@@ -277,32 +331,35 @@ _required_routers = f"""\
       rule: "Host(`pihole.{DOMAIN}`) && Path(`/api/info/version`)"
       service: pihole
       priority: 100
-      entryPoints: [websecure]
+      entryPoints: [websecure]{_mw_yaml("pihole")}
       tls:
         certResolver: cloudflare
 
     pihole-root:
       rule: "Host(`pihole.{DOMAIN}`) && Path(`/`)"
       service: pihole
-      entryPoints: [websecure]
-      middlewares: [oauth2-chain-pihole, pihole-redirect]
+      entryPoints: [websecure]{_mw_yaml("pihole", ["oauth2-chain-pihole", "pihole-redirect"])}
       tls:
         certResolver: cloudflare
 
     pihole:
       rule: "Host(`pihole.{DOMAIN}`)"
       service: pihole
-      entryPoints: [websecure]
-      middlewares: [oauth2-chain-pihole]
+      entryPoints: [websecure]{_mw_yaml("pihole", ["oauth2-chain-pihole"])}
       tls:
         certResolver: cloudflare
 
     # idm/Kanidm is always present, so the wildcard cert declaration lives here
     # — every other subdomain is served the same `*.{DOMAIN}` cert.
+    #
+    # Allowlisted like everything else, which means a browser that is neither on
+    # the LAN nor on the mesh cannot reach the login page. That is deliberate:
+    # off-LAN peers enrol with a setup key, not an interactive SSO round-trip. Add
+    # "idm" to TRAEFIK["public_hosts"] to trade that for remote browser login.
     idm:
       rule: "Host(`idm.{DOMAIN}`)"
       service: idm
-      entryPoints: [websecure]
+      entryPoints: [websecure]{_mw_yaml("idm")}
       tls:
         certResolver: cloudflare
         domains:
@@ -312,7 +369,39 @@ _required_routers = f"""\
     auth:
       rule: "Host(`auth.{DOMAIN}`)"
       service: auth
-      entryPoints: [websecure]
+      entryPoints: [websecure]{_mw_yaml("auth")}
+      tls:
+        certResolver: cloudflare
+
+    # --- NetBird coordinator: the one intentionally internet-facing vhost ---
+    #
+    # Three routers because the backend speaks three protocols on one port. The
+    # gRPC paths need an h2c (HTTP/2 cleartext) upstream or agent registration
+    # fails with a content-type error; /relay and /ws-proxy are WebSocket upgrades,
+    # which a plain HTTP router forwards as-is; everything left over is the
+    # dashboard SPA, so it is a priority-1 catch-all that must lose to the other
+    # two. STUN is UDP and is not here at all — it cannot be proxied.
+    netbird-grpc:
+      rule: "Host(`{NETBIRD["url_prefix"]}.{DOMAIN}`) && (PathPrefix(`/management.ManagementService/`) || PathPrefix(`/management.ProxyService/`) || PathPrefix(`/signalexchange.SignalExchange/`))"
+      service: netbird-h2c
+      priority: 100
+      entryPoints: [websecure]{_mw_yaml(NETBIRD["url_prefix"])}
+      tls:
+        certResolver: cloudflare
+
+    netbird-backend:
+      rule: "Host(`{NETBIRD["url_prefix"]}.{DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`) || PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`))"
+      service: netbird
+      priority: 100
+      entryPoints: [websecure]{_mw_yaml(NETBIRD["url_prefix"])}
+      tls:
+        certResolver: cloudflare
+
+    netbird:
+      rule: "Host(`{NETBIRD["url_prefix"]}.{DOMAIN}`)"
+      service: netbird-dashboard
+      priority: 1
+      entryPoints: [websecure]{_mw_yaml(NETBIRD["url_prefix"])}
       tls:
         certResolver: cloudflare"""
 
@@ -323,7 +412,7 @@ _syncthing_monitor = f"""\
       rule: "Host(`syncthing.{DOMAIN}`) && PathPrefix(`/rest/noauth`)"
       service: syncthing
       priority: 100
-      entryPoints: [websecure]
+      entryPoints: [websecure]{_mw_yaml("syncthing")}
       tls:
         certResolver: cloudflare"""
 
@@ -334,7 +423,7 @@ _ocular_monitor = f"""\
       rule: "Host(`ocular.{DOMAIN}`) && Path(`/status`)"
       service: ocular
       priority: 100
-      entryPoints: [websecure]
+      entryPoints: [websecure]{_mw_yaml("ocular")}
       tls:
         certResolver: cloudflare"""
 
@@ -345,6 +434,12 @@ _services = [
         "idm", f"https://{KANIDM['host']}:{KANIDM['port']}", transport="kanidmTransport"
     ),
     _service_block("auth", f"http://{OAUTH2_PROXY['host']}:{OAUTH2_PROXY['port']}"),
+    # Same upstream twice: `h2c://` is how Traefik v3 is told to speak HTTP/2
+    # cleartext to a backend, which the gRPC routers require and the plain HTTP
+    # routers must not use.
+    _service_block("netbird", f"http://{NETBIRD['host']}:{NETBIRD['port']}"),
+    _service_block("netbird-h2c", f"h2c://{NETBIRD['host']}:{NETBIRD['port']}"),
+    _service_block("netbird-dashboard", f"http://{NETBIRD['host']}:{NETBIRD['dashboard_port']}"),
 ]
 
 for _name, _cfg, _default_prefix in ROUTES:
@@ -374,7 +469,20 @@ _oauth2_per_host = "\n".join(
     for h in _gated_hosts
 )
 
+_internal_cidr_yaml = "\n".join(f"          - {cidr}" for cidr in _INTERNAL_CIDRS)
+
 _middlewares = f"""\
+    # Attached to every router whose vhost is not in TRAEFIK["public_hosts"].
+    # Public 443 reaches this process from the internet (for the NetBird
+    # coordinator), and Traefik routes on Host header rather than source IP — so
+    # this is the only thing standing between a spoofed Host header and the
+    # services on this box that have no auth of their own. Traefik sees the real
+    # client IP directly (nothing sits in front of it), so no depth/xff handling
+    # is needed here.
+    internal-only:
+      ipAllowList:
+        sourceRange:
+{_internal_cidr_yaml}
     compress:
       compress:
         # A whitelist, not a blacklist: anything absent is never compressed.

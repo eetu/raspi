@@ -70,7 +70,9 @@ host-aware.
   host's `FEATURES`, and **warn-skips** a task whose file doesn't exist yet (so a
   declared-but-unbuilt feature is non-blocking).
 - Features: `base` (bootstrap, shell, hardening, network_restrict,
-  network_monitor, secrets, host_discover), `dns`, `vpn`, `proxy`, `containers` (podman), `storage`,
+  network_monitor, secrets, host_discover), `dns`, `vpn` (the NetBird coordinator +
+  this host's routing peer — see *NetBird* below; depends on `containers`, `proxy`
+  and `sso`), `proxy`, `containers` (podman), `storage`,
   `backup`, `ddns`, `sso`, `monitoring`, `apps`, `chat`, `scribe`, `camera`
   (Pi-camera enable + the `ocular` app), `telemetry` (off-hub beszel-agent).
 - `tasks/util.py` `feature(name)` lets a shared `base` task (e.g.
@@ -107,7 +109,7 @@ hang it — power-cycle + re-run is safe, deploys are idempotent).
 
 ## Service patterns
 
-### Native binary (Traefik, wg-portal, Yarr, VuIO, Syncthing)
+### Native binary (Traefik, Yarr, VuIO, Syncthing, netbird agent)
 Use when: single static binary, no container needed.
 
 1. Download binary from GitHub releases, version-stamped to `/usr/local/bin/.{service}-version`
@@ -132,8 +134,8 @@ Use when: upstream provides a container image.
 
 The deploy is opinionated about which services are core and which are à la carte. Tier matters for *how* a service is wired:
 
-- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `WIREGUARD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services. (Note: "required" means the *dict* is always present in the shared `all.py` so hard imports resolve on every host — it does **not** mean the service's task runs everywhere. Which tasks run is feature-gated per host: the raspo camera node runs none of DNS/proxy/SSO, only `base` + `camera` + `telemetry`.)
-- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `REPRESENT`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, `WGPORTAL`, `AUDIOBOOKSHELF`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
+- **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `NETBIRD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services. (Note: "required" means the *dict* is always present in the shared `all.py` so hard imports resolve on every host — it does **not** mean the service's task runs everywhere. Which tasks run is feature-gated per host: the raspo camera node runs none of DNS/proxy/SSO, only `base` + `camera` + `telemetry`.)
+- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `REPRESENT`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, `AUDIOBOOKSHELF`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
 - **Bundles & ripples** — a few optional dicts carry dependencies:
   - **Scribe stack** is all-or-none: comment `SCRIBE`, `SHIM`, `SHELF` together to retire the audiobook app. `SCRIBE` gates `tasks/scribe.py`; the ffmpeg "press" worker is off-Pi (Mac mini) so retiring it is just dropping the press URL.
   - **NTFY is the alert sink.** It degrades gracefully: `tasks/gatus.py` drops its alerting block + per-endpoint alert refs (stays a passive status page), `tasks/restic.py` skips the prune-failure alert, `tasks/trivy.py` keeps scanning but its ntfy pushes no-op, and `tasks/network_monitor.py` (alert-only) stops + disables its timer entirely.
@@ -164,8 +166,8 @@ When planning a new service, look for opportunities to clean up existing code th
 - [ ] `group_data/all.py` — mirror the same change verbatim (the file holds no secret values; AI assistants may edit it directly)
 - [ ] `vault.py` — add helper function + docstring entry if secrets needed
 - [ ] `tasks/{service}.py` — new task file following the pattern above
-- [ ] `tasks/traefik.py` — add a `(name, DICT, default_prefix)` tuple to the `ROUTES` registry (DICT resolved via `optional()`); import the dict (if web-accessible). Only special host shapes (extra monitor routers, oauth2 chains, non-http upstream) need bespoke handling beyond the tuple.
-- [ ] `group_data/all.py` — append the service's name to `_SUBDOMAIN_NAMES` (if web-accessible). DNS wiring is derived from each dict's optional `"public_dns": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record pointing at the **LAN IP** + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/VPN clients). Wildcard TLS cert covers both. `public_dns` only controls whether the name is resolvable in *public DNS* — it does **not** expose the service to the internet (the record points at a private LAN IP and there is no port forward; remote access is via VPN). Reach-from-internet would be a future addition (port forward / tunnel), not implied by this flag.
+- [ ] `tasks/traefik.py` — add a `(name, DICT, default_prefix)` tuple to the `ROUTES` registry (DICT resolved via `optional()`); import the dict (if web-accessible). Only special host shapes (extra monitor routers, oauth2 chains, non-http upstream) need bespoke handling beyond the tuple. The `internal-only` allowlist is applied for you — a new route is LAN/mesh-only unless you add its subdomain to `TRAEFIK["public_hosts"]`, which you almost certainly should not. Hand-written router blocks must call `_mw_yaml(host_prefix)` themselves.
+- [ ] `group_data/all.py` — append the service's name to `_SUBDOMAIN_NAMES` (if web-accessible). DNS wiring is derived from each dict's optional `"public_dns": True` flag: opt-in lands in `PUBLIC_SUBDOMAINS` (Cloudflare A record pointing at the **LAN IP** + Pi-hole split-DNS), default lands in `INTERNAL_SUBDOMAINS` (Pi-hole only, LAN/mesh clients). Wildcard TLS cert covers both. `public_dns` only controls whether the name is resolvable in *public DNS* — it does **not** expose the service to the internet: the record points at a private LAN IP, and reachability is decided separately by Traefik's `public_hosts` allowlist. Only `netbird` is genuinely internet-facing, and its records are WAN-pointing and owned by `tasks/ddns.py` (so it is deliberately absent from `_SUBDOMAIN_NAMES`).
 - [ ] `tasks/network_restrict.py` — add to `RESTRICTED` list if the service is LAN-only
 - [ ] `group_data/all.py` — append `/var/lib/{service}` to `RESTIC["paths"]` if the service has persistent state worth restoring on a blank Pi
 - [ ] `group_data/features.py` — add `("{service}", "{feature}")` to `DEPLOY` (this replaces the old `deploy.py` `local.include` line; deploy.py includes by feature). Tag it `apps` for a standard Pi-4 web service, or a new feature if it's a distinct role.
@@ -249,7 +251,7 @@ Examples:
 All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
 
 ### Network egress restrictions
-LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, dice, mcp-chat, navidrome, nib, ntfy, oauth2-proxy, ocular, party, raspi-dashboard, represent, scribe, supersaw, syncthing, tracker, transcoder, wg-portal, vuio, zot) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, WireGuard subnet, SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
+LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, dice, mcp-chat, navidrome, nib, ntfy, oauth2-proxy, ocular, party, raspi-dashboard, represent, scribe, supersaw, syncthing, tracker, transcoder, vuio, zot) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, both NetBird mesh ranges (v4 + v6), SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
 
 ### Network breach monitoring
 A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
@@ -272,7 +274,7 @@ To wire a new service into SSO:
 
 Pick whichever the service supports — the gating logic is the same in both:
 
-**Env-based** (Vaultwarden, Audiobookshelf, wg-portal, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
+**Env-based** (Vaultwarden, Audiobookshelf, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
 
 **REST-based** (Memos): the service has no OIDC env vars and exposes a REST API to register identity providers post-startup. `tasks/secrets.py` writes the client secret into `/etc/secrets/{service}.env` (along with bootstrap admin credentials), then the service task adds a `server.shell` step that, in order:
 
@@ -304,6 +306,168 @@ Note any version-specific quirks in code comments so the next person reading the
 - All services bind to `127.0.0.1:{port}` — Traefik is the only public listener
 - Adding a service: add a `(name, DICT, default_prefix)` tuple to the `ROUTES` registry in `tasks/traefik.py` (absent/commented dict → route auto-skipped)
 
+### The internal-only allowlist — read before adding a route
+
+Public TCP 443 is forwarded to Traefik so the NetBird coordinator is reachable from
+the internet. Traefik matches on **Host header, not source IP**, so without a filter
+every vhost on the box would answer anyone who sets the header. An `internal-only`
+`ipAllowList` middleware (LAN CIDR + both NetBird mesh ranges + loopback) is therefore
+attached to **every** router by default; only the subdomains named in
+`TRAEFIK["public_hosts"]` opt out.
+
+This is deny-by-default on purpose: a route added without thinking about exposure ends
+up LAN-only rather than silently internet-facing. Two consequences worth knowing:
+
+- Routers generated *outside* the `ROUTES` loop (the required `pihole*`/`idm`/`auth`
+  blocks and the `*-monitor` bypass routers) don't inherit it automatically — they call
+  `_mw_yaml(host_prefix)` explicitly. Anything hand-written must too.
+- `idm` is allowlisted, so a browser that is neither on the LAN nor on the mesh cannot
+  reach the Kanidm login page. Off-LAN peers enrol with a setup key instead, which needs
+  no browser. Add `"idm"` to `public_hosts` to trade that for remote SSO login.
+
+## NetBird (replaces WireGuard)
+
+`tasks/netbird.py` runs the coordinator as two quadlets — `netbird-server`
+(`netbirdio/netbird-server`: management + signal + relay + STUN + an embedded Dex IdP,
+SQLite store) and `netbird-dashboard`. `tasks/netbird_agent.py` enrols *this* host as
+the routing peer that carries LAN traffic; without it there is a control plane and no
+path in. Reachable at `netbird.{domain}`, which is the only name in the zone pointing at
+the **WAN** (A + AAAA maintained by `tasks/ddns.py`) rather than the LAN IP — which is
+why it must stay out of `_SUBDOMAIN_NAMES`.
+
+**Almost everything is automated; exactly one step is not.** `NB_SETUP_PAT_ENABLED=true`
+lets the unauthenticated `POST /api/setup` return a plaintext API token, which
+`tasks/netbird_bootstrap.py` captures into the vault. `tasks/netbird_reconcile.py` then
+drives every piece of account state over the API — settings, groups, setup keys, routes,
+nameserver groups, the Kanidm connector, admin roles — and rotates its own token before
+NetBird's 365-day cap. Every NetBird secret is machine-generated via
+`vault._get_or_create`, so no 1Password *field* is hand-created; only the empty `netbird`
+item, as for any other service.
+
+### The one manual step, and why it cannot be removed
+
+**NetBird binds an identity to an account by its Dex `sub`, with no email fallback.**
+`getAccountIDWithAuthorizationClaims` joins an existing account only when the JWT carries
+the `wt_account_domain` + `wt_account_domain_category` claims (Auth0/Zitadel-style, which
+Kanidm cannot emit and Dex does not synthesise); otherwise `GetAccountIDByUserID` looks up
+strictly by `sub` and, on a miss, *creates a new account*. So the account `/api/setup`
+creates — owned by a local-connector user — can never be logged into via Kanidm. Neither a
+same-domain owner email nor a `POST /users` invite changes this: an invite creates a *local*
+Dex user, whose `sub` still differs from the Kanidm one.
+
+The consequence is a deliberate division of labour:
+
+- `/api/setup` bootstraps the **server** (and the Kanidm connector, which is global — it
+  lives in `idp.db`, not in any account). Its account is otherwise vestigial.
+- The **human's Kanidm login creates the account that matters**, owned by them.
+- They mint one API token in the dashboard (User → Access Tokens) and paste it into the
+  `netbird` vault item's `pat` field. That is the only manual step.
+- From then on `netbird_reconcile.py` uses it, immediately mints its own
+  `pyinfra-reconcile` token on that owner and stores that instead — so the pasted token is
+  used exactly once and self-rotates thereafter.
+
+Repeat that one step only on a rebuild that loses the store. Do not "fix" this by
+re-bootstrapping: the split-account symptom (coordinator peers in one account, your peers
+in another) is this mechanism, not a misconfiguration.
+
+**Never delete or recreate the Kanidm connector.** A Dex `sub` is a protobuf of
+`{user-uuid} + {connector-id}` — decode one to see it:
+
+```
+eetu      -> '\n$f9d272e6-…-7871aa6db65c\x12\x14d9qeu2b9du1c73a90t40'   # connector id
+bootstrap -> '\n$3cc18ca5-…-205b0835be11\x12\x05local'                  # local connector
+```
+
+A new connector gets a new id, which changes every federated user's `sub`, which by the
+rule above hands each of them a brand-new empty account. The connector is global (in
+`idp.db`, visible to any account's token), so `tasks/netbird_reconcile.py` matches it by
+name and only ever POSTs when absent — leave it that way. The same reasoning is why the
+vestigial `/api/setup` account is left in place rather than deleted: removing it needs a
+login as the local bootstrap owner, and risks cascading into the connector it registered.
+It holds one unused local user and one stale peer record, and costs a few KB.
+
+**Two-deploy bring-up** (the same shape as the Kanidm OIDC chain):
+
+1. Coordinator starts, `/api/setup` mints the API token, reconcile creates the groups,
+   the setup key and the Kanidm OIDC connector, and the setup key lands in the vault.
+   The agent cannot enrol yet — `secrets.py` ran before the key existed.
+2. `secrets.py` writes `/etc/secrets/netbird-setup-key`, the agent enrols, and reconcile
+   (which runs *after* the agent, deliberately) resolves the new peer to create the
+   routes and the nameserver group.
+
+The Kanidm redirect URI needs no round-trip: Dex authorizes with the bare
+`/oauth2/callback`, not the `/oauth2/callback/<connector-id>` form the NetBird docs
+describe, so it is registered statically from
+`KANIDM_OIDC_CLIENTS["netbird"]["redirect_path"]`. Verified by reading `redirect_uri`
+off a live authorize request.
+
+### Enrolling peers, and why `idm` stays internal
+
+Two ways in, and the choice matters because `idm.{domain}` is behind the allowlist:
+
+- **Setup key** — works from anywhere, no IdP involved. The key is in the vault as
+  `setup_key_<name>`. Enrols anonymously: the peer gets `user_id: ""`.
+- **SSO (`netbird up` with no key)** — opens a browser to Kanidm, so it only works from
+  the LAN or from an existing mesh peer. Attaches your real identity to the peer.
+
+SSO enrolment from the LAN is the recommended path, and it keeps working off-LAN
+afterwards because **the IdP is involved exactly once, at enrolment**. From then on the
+peer authenticates with its own peer credentials, not your identity.
+
+**The trap: `peer_login_expiration_enabled`.** It is `False` in
+`NETBIRD["account_settings"]` and must stay that way unless `idm` is made public.
+Turning it on makes every SSO-enrolled peer periodically re-authenticate interactively
+against Kanidm — and a peer that is off-LAN when its window lapses is stranded, because
+it cannot reach `idm` to do so. Setup-key peers are immune (no user identity to expire).
+The neighbouring `peer_login_expiration: 86400` is inert while the flag is off.
+
+This is why `idm` is *not* in `TRAEFIK["public_hosts"]`: with LAN-side SSO enrolment plus
+setup keys for the first device, exposing the IdP's login page to the internet buys only
+remote *dashboard* login — and once any one peer is on the mesh, `idm` is reachable
+through it anyway.
+
+**Running these tasks by hand:** `secrets.py` must come *before* `netbird_bootstrap.py`,
+because it writes the `netbird.env` the bootstrap sources. A full `deploy.py` run gets
+this right (`secrets` is a `base` task); a hand-picked task list easily does not, and the
+symptom is an account bootstrapped with stale values.
+
+Credentials self-renew: NetBird caps both API tokens and setup keys at 365 days, so
+reconcile mints replacements once they are inside `NETBIRD["renew_within_days"]`. Deploy
+at least that often and nothing lapses.
+
+Notes:
+- The agent runs with `--disable-dns`. This host *is* the resolver (Pi-hole on :53,
+  Unbound on :5335) and the netbird client would otherwise take over `resolv.conf`.
+- The server uses `Network=host` because its embedded IdP has to resolve and reach
+  `idm.{domain}` to federate Kanidm. It cannot be bound to loopback — the combined
+  server takes only the *port* from `listenAddress` — so ufw's default-deny is what
+  keeps 8081/9091/9092 off the LAN.
+- Mesh DNS: the `home-dns` nameserver group points connected peers at Pi-hole on the
+  Pi's *mesh* IP, so `memo.{domain}` resolves to a LAN IP and routes over `home-lan`.
+- Router-side setup is manual and not deployable from here: forward public TCP 443,
+  UDP 3478 and UDP 51820 to the Pi, and install
+  `files/router-update-netbird-firewall.sh` (the Pi's DDNS script invokes it over SSH
+  to track the Pi's rotating IPv6 address). The `firewall-start` hook in that script's
+  notes is a no-op on stock Asuswrt — custom JFFS scripts are a Merlin feature and
+  `jffs2_scripts` is empty here — so the 5-minute DDNS call is the only thing that
+  re-asserts the rules after a router reboot.
+- **The router's IPv6 mode must be Native (DHCPv6-PD), not Passthrough.** Asus's setup
+  table recommends Passthrough when IPv4 is "Automatic IP", but that assumes the ISP
+  SLAACs the WAN segment. On Elisa fibre it does not: DHCPv6 is what is on offer, and
+  Native makes the router request the delegation (a **/56** here). Symptom of getting
+  this wrong: LAN clients keep an old prefix marked `deprecated` with nothing replacing
+  it, the router's own WAN address sits in a *different* prefix, and no AAAA is ever
+  published — `tasks/ddns.py`'s `!/deprecated/` filter correctly refuses to advertise a
+  dying address. Diagnosed after a 5G→fibre migration left the LAN holding the old 5G
+  prefix; a router reboot does not clear it, only switching modes does.
+- **udp/51820 is what buys direct peer-to-peer.** NetBird needs no inbound port — peers
+  just fall back to the relay — but the relay runs on this same Pi, so relayed traffic
+  is a userspace WSS hop on the busiest path. Opening the agent's WireGuard port
+  (`NETBIRD["agent_wireguard_port"]`, allowed in `tasks/hardening.py`, forwarded on the
+  router) flips `netbird status -d` from `Connection type: Relayed` to `P2P` and puts
+  the data path back in kernel WireGuard. All three — client flag, ufw rule, router
+  forward — must agree; set the config key to `None` to close it and stay relay-only.
+
 ## Backups (restic)
 
 `tasks/restic.py` snapshots service state from `RESTIC["paths"]` to an encrypted repository on the `backups` CIFS share. Daily timer at 03:30 (`raspi-backup.timer`); weekly prune at Sun 04:30 (`raspi-prune.timer`, repo lock declared via `Conflicts=raspi-backup.service` so they cannot overlap, ntfy alert on failure). Repo password lives in the `restic` vault item.
@@ -330,6 +494,7 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 3020 | Party |
 | 3021 | Party transcoder (loopback) |
 | 3040 | dice |
+| 3478 | NetBird STUN (UDP, **internet-facing**) |
 | 4533 | Navidrome |
 | 5230 | Memos |
 | 5335 | Unbound (DNS) |
@@ -337,6 +502,8 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 8384 | Syncthing web UI |
 | 8080 | Pi-hole web UI |
 | 8085 | Vaultwarden |
+| 8081 | netbird-server (API + gRPC + relay + embedded IdP) |
+| 8082 | netbird dashboard |
 | 8088 | Pi-hole DNS |
 | 8090 | ntfy |
 | 8091 | Beszel hub |
@@ -344,11 +511,11 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 8443 | Kanidm (HTTPS) |
 | 8096 | VuIO (DLNA) |
 | 8099 | ocular (camera node, raspo) |
-| 8888 | wg-portal |
 | 9090 | oauth2-proxy |
+| 9091 | netbird-server metrics |
+| 9092 | netbird-server healthcheck |
 | 13378 | Audiobookshelf |
 | 45876 | beszel-agent (off-hub, e.g. raspo) |
-| 51820 | WireGuard (UDP) |
 
 ## Memory budget (Pi 4, 1 GB)
 

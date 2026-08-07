@@ -65,7 +65,7 @@ else:
     SYNCTHING = optional("SYNCTHING")
     VAULTWARDEN = optional("VAULTWARDEN")
     VUIO = optional("VUIO")
-    WGPORTAL = optional("WGPORTAL")
+    NETBIRD = optional("NETBIRD")
     YARR = optional("YARR")
     ZOT = optional("ZOT")
 
@@ -229,8 +229,19 @@ alerting:
                 comment="Loopback-only audible sidecar for scribe — /health is unauthenticated.",
             )
         )
-    if WGPORTAL:
-        _endpoints.append(_ep("WireGuard Portal", f"https://vpn.{DOMAIN}", group="ops"))
+    if NETBIRD:
+        # NetBird's embedded IdP discovery document — unauthenticated, and the same
+        # probe netbird's own installer waits on, so it goes green exactly when the
+        # coordinator is genuinely serving. Reached over the public hostname (rather
+        # than loopback) so the check also covers the Traefik routing in front of it,
+        # which is the part most likely to break.
+        _endpoints.append(
+            _ep(
+                "NetBird",
+                f"https://{NETBIRD['url_prefix']}.{DOMAIN}/oauth2/.well-known/openid-configuration",
+                group="ops",
+            )
+        )
     if NTFY:
         _endpoints.append(_ep("ntfy", f"https://ntfy.{DOMAIN}", group="ops"))
     if ZOT:
