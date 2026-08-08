@@ -8,8 +8,8 @@ stashes the secret in BW; deploy 2 (via `tasks/secrets.py`) reads it and
 wires it into `/etc/secrets/scribe.env`.
 
 Audiobook trees live on the `audiobooks` CIFS share under `audible/`:
-`books/` is audiobookshelf's source of truth, `originals/` is the
-cold-storage AAXC tree scribe never lets ABS see.
+`books/` is the pressed library shelf serves to clients, `originals/`
+is the cold-storage AAXC tree that is never exposed.
 
 Optional service — the self-hosted-audiobook stack (SCRIBE + SHIM + SHELF)
 is all-or-none: comment all three dicts in group_data/all.py to retire it.
@@ -29,7 +29,6 @@ from tasks.util import optional
 
 SCRIBE = optional("SCRIBE")
 SHIM = optional("SHIM")
-AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 SHELF = optional("SHELF")
 
 
@@ -59,12 +58,6 @@ else:
     # import until shim is restored).
     if SHIM:
         _base_env["SCRIBE_SHIM_URL"] = f"http://{SHIM['host']}:{SHIM['port']}"
-
-    # audiobookshelf rescan hook — backend POSTs after each completed job.
-    # Drop both keys when ABS isn't configured so scribe skips the hook.
-    if AUDIOBOOKSHELF:
-        _base_env["ABS_URL"] = f"http://{AUDIOBOOKSHELF['host']}:{AUDIOBOOKSHELF['port']}"
-        _base_env["ABS_LIBRARY_ID"] = AUDIOBOOKSHELF.get("scribe_library_id", "")
 
     # Surface shelf's public URL on scribe's UI so users can copy/paste it
     # into ABS-compatible clients. Auto-derived from SHELF + NETWORK — no

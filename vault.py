@@ -21,7 +21,6 @@ Item / field map (one vault/folder, items named as below):
   cloudflare        login  password=api_token  field: zone_id
   cifs              login  (unused)            fields: {share}_username, {share}_password per CIFS key
                                                (e.g. backups_username/password for the restic repo share)
-  audiobookshelf    login  username/password   field: api_key (read+write)
   netbird           login  (unused)             fields: auth_secret (64-byte hex, auto),
                                                encryption_key (base64 of 32 bytes, auto),
                                                session_cookie_encryption_key (32-byte hex, auto),
@@ -72,7 +71,6 @@ Item / field map (one vault/folder, items named as below):
   scribe            login  (unused)             fields: session_key (64-byte hex, auto),
                                                press_token (hand-pasted; must match the mini's
                                                  `mini/scribe-press` api_key field),
-                                               abs_token (hand-issued ABS API token),
                                                shim_passphrase (48-byte hex, auto),
                                                shelf_api_key (32-byte hex, auto — shared with shelf.env)
   restic            login  password=repo_password (encrypts the restic repo — load-bearing,
@@ -312,18 +310,6 @@ def cifs_creds(share_name: str) -> str:
     return f"username={u}\npassword={p}\n"
 
 
-def abs_creds() -> dict:
-    return _b.read_login("audiobookshelf")
-
-
-def abs_api_key() -> str:
-    return _b.read_field("audiobookshelf", "api_key")
-
-
-def save_abs_api_key(token: str) -> None:
-    _b.write_field("audiobookshelf", "api_key", token)
-
-
 def reserve_creds() -> dict:
     """Login item `reserve`: username=email, password; plus the `api_base_url`
     field. Returns the RESERVE_* env the updater reads."""
@@ -510,12 +496,6 @@ def scribe_press_token() -> str:
     """Bearer for the scribe -> scribe-press hop. Must match the mini's
     `mini/scribe-press` item `api_key` field — paste both sides identically."""
     return _b.read_field("scribe", "press_token")
-
-
-def scribe_abs_token() -> str:
-    """ABS API token — scribe POSTs /api/libraries/{id}/scan after a download.
-    Hand-issued via the ABS root login and pasted in."""
-    return _b.read_field("scribe", "abs_token")
 
 
 def shelf_api_key() -> str:

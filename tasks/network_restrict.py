@@ -26,7 +26,6 @@ MESH_V6 = NETBIRD["account_settings"]["network_range_v6"]
 # Syncthing additionally needs local discovery on udp/21027:
 #   IPv4 limited broadcast (255.255.255.255) and IPv6 multicast (ff12::8384).
 RESTRICTED = [
-    "audiobookshelf",
     "beszel-hub",
     "beszel-agent",
     "chat",

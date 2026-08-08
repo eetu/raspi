@@ -119,7 +119,7 @@ Use when: single static binary, no container needed.
 5. `systemd.service(running=True, enabled=True, daemon_reload=True)`
 6. Hash-based restart detection (stamp file under `/etc/systemd/system/`)
 
-### Podman Quadlet (Vaultwarden, Gatus, ntfy, ABS, Halo, Navidrome, Memos, Kanidm)
+### Podman Quadlet (Vaultwarden, Gatus, ntfy, Halo, Navidrome, Memos, Kanidm)
 Use when: upstream provides a container image.
 
 1. Resolve image tag via `tasks/util.resolve_latest()` if `resolve_latest=True`
@@ -135,7 +135,7 @@ Use when: upstream provides a container image.
 The deploy is opinionated about which services are core and which are à la carte. Tier matters for *how* a service is wired:
 
 - **Required** — strict `from group_data.all import X`. If someone comments the block out by mistake the deploy fails loud at plan time instead of silently shipping a Pi with no reverse proxy / DNS / SSO / auth gateway. Members: `NETWORK`, `TRAEFIK`, `KANIDM`, `KANIDM_OIDC_CLIENTS`, `KANIDM_PERSONS`, `UNBOUND`, `PIHOLE`, `NETBIRD`, `OAUTH2_PROXY`, `CIFS`, `HOSTS`, `SHELL`. This is the baseline a fork can ship as-is: networking + DNS + reverse proxy + SSO + hardening, no application services. (Note: "required" means the *dict* is always present in the shared `all.py` so hard imports resolve on every host — it does **not** mean the service's task runs everywhere. Which tasks run is feature-gated per host: the raspo camera node runs none of DNS/proxy/SSO, only `base` + `camera` + `telemetry`.)
-- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `REPRESENT`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, `AUDIOBOOKSHELF`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
+- **Optional** — `X = optional("X")` from `tasks.util` plus `if X:` guards. Comment the dict in `group_data/all.py` to retire the service without breaking the deploy. Everything that isn't required is optional: `RESTIC`, `EMAIL`, `HALO` (+ `FMI_PV_FORECAST`), `NAVIDROME`, `VAULTWARDEN`, `MEMOS`, `REPRESENT`, `YARR`, `SYNCTHING`, `VUIO`, `BESZEL`, `CHAT` (+ off-Pi `AI`/`COMFY`/`STT`/`TTS`), `MCP_CHAT`, `TRIVY`, `GATUS`, `NTFY`, and the self-hosted-audiobook stack `SCRIBE` + `SHIM` + `SHELF`.
 - **Bundles & ripples** — a few optional dicts carry dependencies:
   - **Scribe stack** is all-or-none: comment `SCRIBE`, `SHIM`, `SHELF` together to retire the audiobook app. `SCRIBE` gates `tasks/scribe.py`; the ffmpeg "press" worker is off-Pi (Mac mini) so retiring it is just dropping the press URL.
   - **NTFY is the alert sink.** It degrades gracefully: `tasks/gatus.py` drops its alerting block + per-endpoint alert refs (stays a passive status page), `tasks/restic.py` skips the prune-failure alert, `tasks/trivy.py` keeps scanning but its ntfy pushes no-op, and `tasks/network_monitor.py` (alert-only) stops + disables its timer entirely.
@@ -251,7 +251,7 @@ Examples:
 All native binary services use systemd sandboxing: `ProtectSystem=strict` (read-only root filesystem with explicit `ReadWritePaths`), `ProtectHome=yes`, `PrivateTmp=yes`, `ProtectKernelTunables/Modules/ControlGroups`, `RestrictNamespaces`, `LockPersonality`, and `CapabilityBoundingSet` limited to only what the service needs. A compromised binary can only write to its own data directory.
 
 ### Network egress restrictions
-LAN-only services (audiobookshelf, beszel-hub, beszel-agent, chat, dice, mcp-chat, navidrome, nib, ntfy, oauth2-proxy, ocular, party, raspi-dashboard, represent, scribe, supersaw, syncthing, tracker, transcoder, vuio, zot) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, both NetBird mesh ranges (v4 + v6), SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
+LAN-only services (beszel-hub, beszel-agent, chat, dice, mcp-chat, navidrome, nib, ntfy, oauth2-proxy, ocular, party, raspi-dashboard, represent, scribe, supersaw, syncthing, tracker, transcoder, vuio, zot) are blocked from reaching the internet via nftables rules with cgroup-based matching (`tasks/network_restrict.py`). Allowed destinations: localhost, LAN CIDR, both NetBird mesh ranges (v4 + v6), SSDP multicast, plus link-local broadcast + `ff12::8384` for Syncthing local discovery. Blocked attempts are logged with `BREACH:<service>:` prefix in the kernel journal, including destination IP. The authoritative list is `RESTRICTED` in `tasks/network_restrict.py` — keep this paragraph in sync when entries change.
 
 ### Network breach monitoring
 A systemd timer (`tasks/network_monitor.py`) runs every 15 minutes, checks the journal for `BREACH:` entries, and sends an urgent ntfy alert with the service name, blocked packet count, and destination IP.
@@ -274,7 +274,7 @@ To wire a new service into SSO:
 
 Pick whichever the service supports — the gating logic is the same in both:
 
-**Env-based** (Vaultwarden, Audiobookshelf, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
+**Env-based** (Vaultwarden, Beszel, Gatus): the service reads OIDC config from environment variables. `tasks/secrets.py` writes them to `/etc/secrets/{service}.env` only when `bw.kanidm_oidc_secret(...)` returns non-empty, and the service task includes the env file via `EnvironmentFile=` in its unit/quadlet. No post-deploy API call needed.
 
 **REST-based** (Memos): the service has no OIDC env vars and exposes a REST API to register identity providers post-startup. `tasks/secrets.py` writes the client secret into `/etc/secrets/{service}.env` (along with bootstrap admin credentials), then the service task adds a `server.shell` step that, in order:
 
@@ -515,7 +515,6 @@ When adding a service with persistent state, append `/var/lib/{service}` to `RES
 | 9090 | oauth2-proxy |
 | 9091 | netbird-server metrics |
 | 9092 | netbird-server healthcheck |
-| 13378 | Audiobookshelf |
 | 45876 | beszel-agent (off-hub, e.g. raspo) |
 
 ## Memory budget (Pi 4, 1 GB)
