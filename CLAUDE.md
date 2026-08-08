@@ -447,10 +447,11 @@ Notes:
 - Router-side setup is manual and not deployable from here: forward public TCP 443,
   UDP 3478 and UDP 51820 to the Pi, and install
   `files/router-update-netbird-firewall.sh` (the Pi's DDNS script invokes it over SSH
-  to track the Pi's rotating IPv6 address). Whether the `firewall-start` hook fires on
-  stock Asuswrt is unverified — it does not need to, because the 5-minute DDNS call
-  re-asserts the rules regardless, so a reboot costs minutes of closed inbound IPv6 at
-  worst.
+  to track the Pi's rotating IPv6 address). The `firewall-start` hook is confirmed
+  *not* to fire on stock Asuswrt (verified 2026-08: a firewall rebuild flushed WGSF
+  and only the DDNS timer restored it) — it does not need to, because the 5-minute
+  DDNS call re-asserts the rules regardless, so a reboot costs minutes of closed
+  inbound IPv6 at worst.
 - **The router's IPv6 mode must be Native (DHCPv6-PD), not Passthrough.** Asus's setup
   table recommends Passthrough when IPv4 is "Automatic IP", but that assumes the ISP
   SLAACs the WAN segment. On Elisa fibre it does not: DHCPv6 is what is on offer, and

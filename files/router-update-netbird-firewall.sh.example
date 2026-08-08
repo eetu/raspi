@@ -2,11 +2,11 @@
 # Updates the router's ip6tables rules to allow the NetBird coordinator (TCP 443
 # via Traefik, UDP 3478 for STUN) to the Pi's current global IPv6 address.
 #
-# Why this exists: the router runs IPv6 in passthrough mode (`ipv6_service=ipv6pt`),
-# which is ND-proxy relaying rather than L2 bridging — so WAN→LAN traffic is routed
-# and *does* traverse ip6tables FORWARD. There is no NAT on IPv6, so the router
-# either permits a port to the Pi's address or it does not, and that address moves
-# whenever the ISP rotates the prefix. Hence this script.
+# Why this exists: the router runs IPv6 in Native mode (`ipv6_service=dhcp6`,
+# DHCPv6-PD), so WAN→LAN traffic is routed and traverses ip6tables FORWARD, whose
+# policy is default-DROP. There is no NAT on IPv6, so the router either permits a
+# port to the Pi's address or it does not, and that address moves whenever the ISP
+# rotates the delegated prefix. Hence this script.
 #
 # How it learns the address, in priority order:
 #   1. $SSH_ORIGINAL_COMMAND — the Pi passes its own global address when the DDNS
@@ -18,8 +18,9 @@
 #
 # (3) used to be the only method and is why this mechanism sat broken: the router
 # only holds a neighbour entry for a global address while it is actively forwarding
-# to it, so an idle Pi has no global entry at all — and the router cannot compute
-# one either, because passthrough leaves it without an address in the Pi's prefix.
+# to it, so an idle Pi has no global entry at all — and the router cannot reliably
+# compute one either, since it cannot know which address in the delegated prefix
+# the Pi actually uses.
 #
 # Setup:
 #   1. Set PI_MAC to the Pi's Ethernet MAC (ip link show eth0 | grep ether)
@@ -30,13 +31,13 @@
 #      rebuilds its firewall:
 #        echo /jffs/scripts/update-netbird-firewall.sh > /jffs/scripts/firewall-start
 #        chmod +x /jffs/scripts/firewall-start
-#      Whether this hook actually fires on stock Asuswrt is UNVERIFIED. The nvram
-#      keys usually cited for it (jffs2_scripts, jffs2_on) are empty on a ZenWiFi
-#      BT8, but that has not been shown to mean the hook is disabled, and WGSF was
-#      observed empty after one reboot without the cause being pinned down. Either
-#      way it is not load-bearing: the Pi's DDNS timer invokes this script over SSH
-#      every 5 minutes, so the worst case after a reboot is a few minutes of closed
-#      inbound IPv6, not a permanent outage.
+#      This hook is CONFIRMED NOT FIRING on stock Asuswrt (ZenWiFi BT8): a
+#      firewall rebuild (toggling UPnP off, 2026-08) flushed WGSF, and with a
+#      valid cache present the rules stayed gone until the Pi's DDNS timer
+#      re-asserted them. Not load-bearing: the timer invokes this script over SSH
+#      every 5 minutes, so the worst case after any firewall rebuild is a few
+#      minutes of closed inbound IPv6, not a permanent outage. The step is kept
+#      in case a future firmware starts honouring the hook.
 #   4. Add to the router's SSH authorized keys (Administration → System on stock
 #      Asuswrt; it is stored in nvram, so editing the file alone does not persist):
 #        command="/jffs/scripts/update-netbird-firewall.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... raspi-ddns
