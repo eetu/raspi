@@ -227,10 +227,11 @@ private half is read via `op read "op://<vault>/<item>/private key?ssh-format=op
 `user_pw_<local@host>` + field `com`, so `read_field` also matches the
 reconstructed `section.label` form.
 
-CIFS (NAS) credentials are consolidated in a single `cifs` item with per-share
-fields (`{share}_username`, `{share}_password`). The CIFS dict keys in `all.py`
-drive which fields are expected — adding a new CIFS mount automatically creates
-its credential file.
+CIFS (NAS) credentials live in a single `cifs` item holding two shared logins
+(`readonly_username`/`readonly_password`, `readwrite_username`/`readwrite_password`
+— the BT8 NAS caps accounts at 5, so shares split across these two). Each CIFS
+dict entry in `all.py` picks one via its `creds` key; a new mount just picks a
+login, no new vault fields.
 
 ### Rotating a secret
 
