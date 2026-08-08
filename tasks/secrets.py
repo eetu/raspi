@@ -48,9 +48,9 @@ def _put_secret(name, content, dest, mode="600", group="root"):
 
 if feature("storage"):
     for _name in CIFS:
-        # A share may borrow another's vault credentials via a "creds" alias
-        # (e.g. mods reuses music's login) instead of its own *_username/
-        # *_password fields. Defaults to the share's own name.
+        # Every share names its NAS login via "creds" — one of the two shared
+        # accounts (readonly / readwrite). The own-name fallback survives for
+        # a hypothetical share with a dedicated account.
         _creds_key = CIFS[_name].get("creds", _name)
         _put_secret(f"cifs-{_name}", vault.cifs_creds(_creds_key), f"/etc/secrets/cifs-{_name}")
 

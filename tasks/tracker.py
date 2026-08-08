@@ -10,9 +10,10 @@ collection with no per-user state, so the human route is NOT in traefik's
 `_gated_hosts`. The container runs with `TRACKER_OPEN=1` to skip the
 forward-auth header assertion; egress is blocked in tasks/network_restrict.py.
 
-The `mods` share is mounted READ-WRITE (not :ro like navidrome's music): the
-list view renames/moves modules in place (`/api/rename`) to clean up names
-from old CD rips.
+The modules live under `mods/` on the `scene` share (one CIFS mount, no
+separate `mods` mount) and the bind is READ-WRITE (not :ro like navidrome's
+music): the list view renames/moves modules in place (`/api/rename`) to
+clean up names from old CD rips. party's bind of the same mount stays :ro.
 
 The High Voltage SID Collection comes in as a second root from the `scene`
 share, read-only. It is never walked: tracker indexes it from the collection's
@@ -47,12 +48,14 @@ if TRACKER is None:
         daemon_reload=True,
     )
 else:
-    _mods = CIFS["mods"]["mountpoint"]
-    _mount_unit = f"{_mods.lstrip('/').replace('/', '-')}.automount"  # mnt-mods.automount
-    # HVSC lives on the `scene` share, so that mount has to be up too. Without
-    # this the container can start before it is, and podman fails the whole unit
-    # with `statfs …: host is down` rather than degrading.
+    # Modules and HVSC both live on the single `scene` mount; the container
+    # still sees them at /mods and /hvsc, so tracker.db paths never change.
+    # Without the automount dep the container can start before the mount is
+    # up, and podman fails the whole unit with `statfs …: host is down`
+    # rather than degrading.
     _scene = CIFS["scene"]["mountpoint"]
+    _mods = f"{_scene}/mods"
+    _mount_unit = f"{_scene.lstrip('/').replace('/', '-')}.automount"  # mnt-scene.automount
     _hvsc = f"{_scene}/C64Music"
     _scene_unit = f"{_scene.lstrip('/').replace('/', '-')}.automount"  # mnt-scene.automount
 
