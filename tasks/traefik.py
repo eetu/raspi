@@ -49,7 +49,6 @@ from tasks.util import optional, restart_if_changed
 # Optional service dicts — None when retired (commented in group_data/all.py).
 # A route whose dict is None is skipped by the generator below.
 AI = optional("AI")
-AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
 BESZEL = optional("BESZEL")
 CHAT = optional("CHAT")
 COMFY = optional("COMFY")
@@ -125,7 +124,6 @@ if SUPERSAW and _oauth2_active:
 # vault/vpn/status/metrics/memo). Aliases are read from the dict's `aliases`.
 ROUTES = [
     ("halo", HALO, "halo"),
-    ("audiobooks", AUDIOBOOKSHELF, "audiobooks"),
     ("ntfy", NTFY, "ntfy"),
     ("gatus", GATUS, "gatus"),
     ("vault", VAULTWARDEN, "vault"),
@@ -503,7 +501,7 @@ _middlewares = f"""\
         #
         # This middleware hangs off the websecure entrypoint (see static_yaml),
         # so it applies to every HTTPS route on the box — including the audio
-        # streams from shelf, audiobookshelf and navidrome. gzip on a media
+        # streams from shelf and navidrome. gzip on a media
         # response strips Content-Length and Accept-Ranges, and leaves the ETag
         # describing bytes that are no longer what's on the wire. Those are
         # exactly the headers a client needs in order to resume an interrupted

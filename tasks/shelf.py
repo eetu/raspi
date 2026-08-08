@@ -2,8 +2,8 @@
 
 Mounts `/var/lib/scribe/scribe.db` and the audiobook library tree
 read-only (`:ro` bind), exposes a tight Audiobookshelf API subset on
-port 3006. Listen This and other ABS clients connect here directly,
-bypassing the real audiobookshelf entirely.
+port 3006. Listen This and other ABS clients connect here directly —
+no Audiobookshelf server involved.
 
 Optional service — part of the scribe bundle. Comment the SHELF dict
 in `group_data/all.py` to retire it. The task then stops + disables the

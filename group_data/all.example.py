@@ -339,8 +339,8 @@ NIB = {
 
 # Scribe — self-hosted Audible library mirror. Talks to shim over loopback,
 # ships ffmpeg work to scribe-press on the mini. The library/ tree on the
-# CIFS audiobooks share is what audiobookshelf reads; original/ is the
-# cold-storage AAXC tree (ABS never sees it).
+# CIFS audiobooks share is what shelf serves to clients; original/ is the
+# cold-storage AAXC tree (never exposed).
 SCRIBE = {
     "host": "127.0.0.1",
     "port": 3003,
@@ -480,22 +480,6 @@ RESERVE = {
     },
 }
 
-# Optional. Comment the entire block to retire ABS without deleting
-# state — tasks/audiobookshelf.py drops into a cleanup branch (stop +
-# disable systemd unit, leave /var/lib/audiobookshelf, BW item, and
-# Kanidm OIDC client untouched). Re-add the block + redeploy to bring
-# the service back online. scribe-shelf covers the read-only API path
-# for most clients now.
-AUDIOBOOKSHELF = {
-    "host": "127.0.0.1",
-    "port": 13378,
-    "books_path": "/mnt/audiobooks/audible/books",
-    # Pinned to a specific tag (no floating major tag available).
-    # Set resolve_latest=True to install the latest major.x at deploy time.
-    "image": "ghcr.io/advplyr/audiobookshelf:2.33.1",
-    "resolve_latest": False,
-}
-
 TRAEFIK = {
     "host": "0.0.0.0",
     "version": "v3.6.12",
@@ -612,7 +596,6 @@ RESTIC = {
         "/var/lib/memos",
         "/var/lib/gatus",
         "/var/lib/yarr",
-        "/var/lib/audiobookshelf",
         "/var/lib/syncthing",
         # NetBird coordinator state: SQLite store (peers, keys, ACLs, routes),
         # the embedded IdP's user db, and the activity log. Losing it means every
@@ -916,14 +899,6 @@ KANIDM_OIDC_CLIENTS = {
         "redirect_path": "/oauth2/callback",
         "scopes": ["openid", "email", "profile"],
         "secret_field": "netbird_client_secret",
-    },
-    "audiobookshelf": {
-        "display_name": "Audiobookshelf",
-        "url_prefix": "audiobooks",
-        "public_dns": True,
-        "redirect_path": "/audiobookshelf/auth/openid/callback",
-        "scopes": ["openid", "email", "profile"],
-        "secret_field": "abs_client_secret",
     },
     "beszel": {
         "display_name": "Beszel Monitoring",

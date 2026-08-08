@@ -274,7 +274,6 @@ if feature("scribe") and SCRIBE:
     _scribe_lines = [
         f"SESSION_KEY={vault.scribe_session_key()}",
         f"SCRIBE_PRESS_TOKEN={vault.scribe_press_token()}",
-        f"ABS_TOKEN={vault.scribe_abs_token()}",
         # Same value as /etc/secrets/shelf.env — paired so scribe's UI
         # can surface the key without an extra service round-trip.
         f"SCRIBE_SHELF_API_KEY={vault.shelf_api_key()}",

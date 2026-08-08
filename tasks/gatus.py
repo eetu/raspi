@@ -45,7 +45,6 @@ if GATUS is None:
 else:
     # Optional services — comment their dicts in group_data/all.py and the
     # matching endpoint disappears with them.
-    AUDIOBOOKSHELF = optional("AUDIOBOOKSHELF")
     BESZEL = optional("BESZEL")
     CHAT = optional("CHAT")
     DICE = optional("DICE")
@@ -162,8 +161,6 @@ alerting:
         _endpoints.append(
             _ep("Memos", f"http://{MEMOS['host']}:{MEMOS['port']}/healthz", group="apps")
         )
-    if AUDIOBOOKSHELF:
-        _endpoints.append(_ep("Audiobookshelf", f"https://audiobooks.{DOMAIN}", group="media"))
     if REPRESENT:
         _endpoints.append(
             _ep(
