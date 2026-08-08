@@ -19,8 +19,10 @@ Auth:
 
 Item / field map (one vault/folder, items named as below):
   cloudflare        login  password=api_token  field: zone_id
-  cifs              login  (unused)            fields: {share}_username, {share}_password per CIFS key
-                                               (e.g. backups_username/password for the restic repo share)
+  cifs              login  (unused)            fields: readonly_username/readonly_password,
+                                               readwrite_username/readwrite_password — the two
+                                               shared NAS logins every CIFS share picks from
+                                               via its `creds` key
   netbird           login  (unused)             fields: auth_secret (64-byte hex, auto),
                                                encryption_key (base64 of 32 bytes, auto),
                                                session_cookie_encryption_key (32-byte hex, auto),
@@ -304,9 +306,11 @@ def pihole_password() -> str:
     return _b.read_login("pihole")["password"]
 
 
-def cifs_creds(share_name: str) -> str:
-    u = _b.read_field("cifs", f"{share_name}_username")
-    p = _b.read_field("cifs", f"{share_name}_password")
+def cifs_creds(login: str) -> str:
+    """`login` is a share's `creds` value from the CIFS dict — one of the two
+    shared NAS accounts (`readonly` / `readwrite`)."""
+    u = _b.read_field("cifs", f"{login}_username")
+    p = _b.read_field("cifs", f"{login}_password")
     return f"username={u}\npassword={p}\n"
 
 

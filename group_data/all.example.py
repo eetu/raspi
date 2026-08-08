@@ -506,44 +506,42 @@ HOSTS = {
 
 SHELL = "/usr/bin/fish"  # /usr/bin/zsh, usr/bin/bash
 
+# Shares split across two shared NAS logins (the BT8 caps accounts at 5):
+# `readonly` and `readwrite`, stored in the `cifs` vault item as
+# readonly_username/readonly_password and readwrite_username/
+# readwrite_password. Every share names its login via `creds`; pick
+# `readwrite` only where a service actually writes.
 CIFS = {
     "audiobooks": {
         "share": "//zenwifi/audiobooks",  # alias from HOSTS above
         "mountpoint": "/mnt/audiobooks",
         "vers": "2.0",
         "sec": "ntlmsspi",
+        "creds": "readwrite",  # scribe presses new books into the tree
     },
     "music": {
         "share": "//zenwifi/music",
         "mountpoint": "/mnt/music",
         "vers": "2.0",
         "sec": "ntlmsspi",
+        "creds": "readonly",
     },
-    # tracker reads AND renames/moves modules in place, so this mount is
-    # read-write (the CIFS default — file_mode/dir_mode 0755, uid/gid 1000).
-    # Now a subpath of the `scene` share (mount.cifs prefixpath) rather than a
-    # top-level share; reuses the `music` NAS login (no separate mods_* vault
-    # fields needed). The `music` account needs write across `scene` for this.
-    "mods": {
-        "share": "//zenwifi/scene/mods",
-        "mountpoint": "/mnt/mods",
-        "vers": "2.0",
-        "sec": "ntlmsspi",
-        "creds": "music",
-    },
-    # Demoscene party archive — the `party` app's PARTY_ROOT=/mnt/scene/parties.
+    # One mount serves both consumers: tracker binds {mountpoint}/mods
+    # read-write (renames modules in place), party binds the archive :ro
+    # (PARTY_ROOT=/mnt/scene/parties). readwrite creds because of tracker.
     "scene": {
         "share": "//zenwifi/scene",
         "mountpoint": "/mnt/scene",
         "vers": "2.0",
         "sec": "ntlmsspi",
-        "creds": "music",
+        "creds": "readwrite",
     },
     "movies": {
         "share": "//zenwifi/movies",
         "mountpoint": "/mnt/movies",
         "vers": "2.0",
         "sec": "ntlmsspi",
+        "creds": "readonly",
     },
     # Used by tasks/restic.py for the encrypted backup repository.
     "backups": {
@@ -551,6 +549,7 @@ CIFS = {
         "mountpoint": "/mnt/backups",
         "vers": "2.0",
         "sec": "ntlmsspi",
+        "creds": "readwrite",
     },
 }
 
