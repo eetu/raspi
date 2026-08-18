@@ -20,7 +20,8 @@ share, read-only. It is never walked: tracker indexes it from the collection's
 own `DOCUMENTS/Songlengths.md5`, so 61k tunes cost one 5MB read rather than the
 minutes a stat-and-hash pass over CIFS would take. The C64 ROMs SID playback
 wants live beside the modules in `mods/.support` — copyrighted and
-operator-supplied, like the Amiga Kickstart under `parties/.support`.
+operator-supplied, like the Amiga Kickstart under `parties/.support`, and like
+the visualiser reels in `mods/.support/reels` (which need no env var; see below).
 
 Optional service — comment the TRACKER dict in group_data/all.py to retire
 it. The task then stops + disables the unit; /var/lib/tracker (the SQLite
@@ -85,6 +86,13 @@ Environment=TRACKER_BIND={TRACKER["host"]}:{TRACKER["port"]}
 # parties/.support. Operator-supplied and copyrighted, hence on the NAS rather
 # than in the image. Without them a BASIC-driven RSID plays as near-silence.
 Environment=TRACKER_ROMS_DIR=/mods/.support
+# Visualiser reels — the one-bit films a track can bring with it — need NO variable
+# here, deliberately: the backend defaults to `<primary root>/.support/reels`, which
+# is the same dot-directory as the ROMs above, so a clip dropped at
+# `mods/.support/reels/<id>.bin` on the share is found with no config to get wrong.
+# On the NAS for the same reason as the ROMs and the Kickstart: derived frames of
+# somebody else's video, so never committed and never baked into the image. Absent,
+# the visualisers simply show their own faces. TRACKER_REELS_DIR overrides it.
 # The scan is latency-bound on CIFS, not CPU-bound, so more threads than cores
 # helps — but each one holds a read buffer, and this unit has a hard memory cap.
 # 8 keeps nearly all of the measured win (8/16/32 were indistinguishable) at half
