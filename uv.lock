@@ -477,7 +477,7 @@ wheels = [
 
 [[package]]
 name = "pyinfra"
-version = "3.11.1"
+version = "3.11.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cyclopts" },
@@ -492,9 +492,9 @@ dependencies = [
     { name = "typeguard" },
     { name = "types-paramiko" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/f2/947848242479665094410288667068e50f3c839d4675a3f4fbe7495ce3c3/pyinfra-3.11.1.tar.gz", hash = "sha256:6017acf7b9c2a691217a038728ce4e4c703a986e6930c43c0e8b55d2a8a7265d", size = 714309, upload-time = "2026-11-12T18:17:09.668Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/29/5d511b068a342b97176fb2ca81ff212316ee5a68fd9f038c6e9e109e4932/pyinfra-3.11.2.tar.gz", hash = "sha256:5032e5f7a5c8c04d13bcfbef312cdad1c939a78009577ba4a729c71fb3565ef5", size = 800373, upload-time = "2026-11-20T15:15:18.325Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/ef/4e422da006b87999e2af2e5539b1a63864657caf34f6cbd9129eda787f6d/pyinfra-3.11.1-py3-none-any.whl", hash = "sha256:39082ff60a136fab5dee0699f9d2f60c6fad7db2c3a2fd1fb90516c5bd83a5ec", size = 355354, upload-time = "2026-11-12T18:17:07.587Z" },
+    { url = "https://files.pythonhosted.org/packages/16/f5/fb1c2f370e17dddf051e9571245b499da4ac7cdf15a3c328730a9bc94a55/pyinfra-3.11.2-py3-none-any.whl", hash = "sha256:df4bb1d1299aaa945ceb3aa763869351533a0ae037adfe5b8a60e2a3d80dd5bd", size = 358594, upload-time = "2026-11-20T15:15:16.762Z" },
 ]
 
 [[package]]
@@ -558,7 +558,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyinfra", specifier = ">=3.11.1" }]
+requires-dist = [{ name = "pyinfra", specifier = ">=3.11.2" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.17.6" }]
